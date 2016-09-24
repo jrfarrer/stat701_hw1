@@ -3,15 +3,15 @@ title: "STATS701 Homework 1"
 author: "Jordan Farrer"
 date: '2016-09-25'
 output:
-  pdf_document:
-    number_sections: yes
-    toc: yes
   html_document:
     css: style.css
     number_sections: yes
     theme: flatly
     toc: yes
     toc_float: yes
+  pdf_document:
+    number_sections: yes
+    toc: yes
 ---
 
 # Setup
@@ -25,7 +25,7 @@ Begin by setting up the R session, creating a logger function, and loading packa
 
 ```{r setup1, include=FALSE}
 # Set options for the rmarkdown file
-knitr::opts_chunk$set(echo = TRUE, warning = FALSE, fig.align = 'center')
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, fig.align = 'center', width = 100)
 ```
 
 ```{r setup2, messages = FALSE}
@@ -34,7 +34,7 @@ set.seed(44)
 # Set the locale of the session so languages other than English can be used
 invisible(Sys.setlocale("LC_ALL", "en_US.UTF-8"))
 # Prevent printing in scientific notation
-options(scipen = 999, digits = 4)
+options(scipen = 999, digits = 4, width = 220)
 
 # Create a logger function
 logger <- function(msg, level = "info", file = log_file) {
@@ -77,8 +77,10 @@ invisible(lapply(packages, fn_load_packages))
 ```
 
 ```{r}
-# Installs fonts
-#system(paste0("cp -r ",viz_dir,"fonts/. ~/Library/Fonts/"))
+# To the font second font, run the following two lines of code and add name of user to vector
+# system(paste0("cp -r ",viz_dir,"fonts/. ~/Library/Fonts/")) # instantaneous
+# font_import() # takes approximately 5-10 min
+users_v <- c("Jordan")
 ```
 
 ```{r Create palette and theme}
@@ -86,7 +88,7 @@ invisible(lapply(packages, fn_load_packages))
 pal538 <- ggthemes_data$fivethirtyeight
 
 # Create a theme to use throughout the analysis
-theme_jrf <- function(base_size = 8, base_family = "DecimaMonoPro") {
+theme_jrf <- function(base_size = 8, base_family = ifelse(Sys.info()[['user']] %in% users_v, "DecimaMonoPro", "Helvetica")) {
     theme(
         plot.background = element_rect(fill = "#F0F0F0", colour = "#606063"), 
         panel.background = element_rect(fill = "#F0F0F0", colour = NA), 
@@ -104,8 +106,8 @@ theme_jrf <- function(base_size = 8, base_family = "DecimaMonoPro") {
         legend.background = element_blank(),
         legend.key = element_blank(), 
         plot.title = element_text(face = 'bold', colour = '#3C3C3C', hjust = 0),
-        text = element_text(size = 9, family = "DecimaMonoPro"),
-        title = element_text(family = "DecimaMonoPro-Bold")
+        text = element_text(size = 9, family = ifelse(Sys.info()[['user']] %in% users_v,"DecimaMonoPro", "Helvetica")),
+        title = element_text(family = ifelse(Sys.info()[['user']] %in% users_v,"DecimaMonoPro", "Helvetica"))
         
     )
 }
@@ -218,7 +220,7 @@ survey_results_cleaning %>% group_by(education2) %>% summarise(cnt = n()) %>% ar
 
 ### Gender
 
-We'll summarise the gender variable. 
+We'll summarize the gender variable. 
 
 ```{r Data cleaning - Gender1}
 survey_results_cleaning %>% group_by(gender) %>% summarise(cnt = n()) %>% arrange(gender)
@@ -315,7 +317,7 @@ Let's review the records with missing data.
 survey_results_cleaning[!complete.cases(survey_results_cleaning), ] %>% print(width = Inf)
 ```
 
-We will remove the `r nrow(filter(survey_results_cleaning, is.na(sirius) | is.na(wharton)))` records that have NAs for sirius or wharton. Without information about the response, we will have trouble making an estimate of *p*, the porportion of Sirius listeners who listened to Business Radio Powered by the Wharton School.
+We will remove the `r nrow(filter(survey_results_cleaning, is.na(sirius) | is.na(wharton)))` records that have NAs for sirius or wharton. Without information about the response, we will have trouble making an estimate of *p*, the proportion of Sirius listeners who listened to Business Radio Powered by the Wharton School.
 
 ```{r}
 survey_results_cleaning %>%
@@ -352,9 +354,9 @@ sapply(survey_results_final, summary)
 
 ### (1)
 
-On the surface, we have no reason to believe that the MTURK dataset could be representative of the US population. Knowledge of MTURK is not universial and attracts particular types of individuals willing to perform many small tasks for a minor reward (from Planet Money podcast). 
+On the surface, we have no reason to believe that the MTURK dataset could be representative of the US population. Knowledge of MTURK is not universal and attracts particular types of individuals willing to perform many small tasks for a minor reward (from Planet Money podcast). 
 
-First, we quickly see that the porportion of Sirius listeners is much higher than the given proportion. If the US population is [321.4 million](https://www.census.gov/quickfacts/), then the proportion of Sirius listeners is 
+First, we quickly see that the proportion of Sirius listeners is much higher than the given proportion. If the US population is [321.4 million](https://www.census.gov/quickfacts/), then the proportion of Sirius listeners is 
 
 $$\frac{51.6}{321.4} = `r round(51.6/321.4, 4)`$$
 
@@ -468,7 +470,7 @@ actual_expected %>%
 
 Looking at education, we download data the US Census Bureau's [Current Population Report ](https://www.census.gov/hhes/socdemo/education/data/cps/2015/Table%201-01.csv) that shows statistics on educational attainment. The data is by age and gender, but we aggregate the age section to the total population to compare to the MTURK sample. The table below shows expected vs actual proportions.
 
-```{r messages = FALSE}
+```{r message = FALSE, warning = FALSE, error = FALSE}
 census_edu <- read_csv(url("https://www.census.gov/hhes/socdemo/education/data/cps/2015/Table%201-01.csv"), 
                               skip = 5)
 
@@ -521,7 +523,7 @@ comparison_tbl_edu <-
 comparison_tbl_edu
 ```
 
-We find that the MTURK sample over indexes on people have been to college or graduated from college. Noteably, in a sample of the US population we would expect to find `r comparison_tbl_edu %>% filter(education == "Some college, no diploma; or Associate’s degree") %>% select(expected) %>% unlist()` of people to have 'Some college, no diploma; or Associate’s degree', but in the MTURK sample `r comparison_tbl_edu %>% filter(education == "Some college, no diploma; or Associate’s degree") %>% select(actual) %>% unlist()` fit this category of educational attainment.
+We find that the MTURK sample over indexes on people have been to college or graduated from college. Notably, in a sample of the US population we would expect to find `r comparison_tbl_edu %>% filter(education == "Some college, no diploma; or Associate’s degree") %>% select(expected) %>% unlist()` of people to have 'Some college, no diploma; or Associate’s degree', but in the MTURK sample `r comparison_tbl_edu %>% filter(education == "Some college, no diploma; or Associate’s degree") %>% select(actual) %>% unlist()` fit this category of educational attainment.
 
 We use a proportions test to determine if the proportions are indeed different.
 
@@ -530,7 +532,7 @@ edu_matrix <- inner_join(edu_expected, edu_actual, by = c("education")) %>% sele
 (edu_prop_test <- prop.test(edu_matrix))
 ```
 
-Using `r edu_prop_test$method` we have strong evidence against the null hypothesis that the proporotions in the education groups are the same. This provides further evidence that the MTURK sample does not represent the US population.
+Using `r edu_prop_test$method` we have strong evidence against the null hypothesis that the proportions in the education groups are the same. This provides further evidence that the MTURK sample does not represent the US population.
 
 Looking at income, we download from the US Census Bureau statistics on [personal income](http://www.census.gov/data/tables/time-series/demo/income-poverty/cps-pinc/pinc-01.html).
 
@@ -603,13 +605,13 @@ income_matrix <- inner_join(income_expected, income_actual, by = c("income")) %>
 (income_prop_test <- prop.test(income_matrix))
 ```
 
-Using `r income_prop_test$method` we have strong evidence against the null hypothesis that the proporotions in the income groups are the same. This provides further evidence that the MTURK sample does not represent the US population.
+Using `r income_prop_test$method` we have strong evidence against the null hypothesis that the proportions in the income groups are the same. This provides further evidence that the MTURK sample does not represent the US population.
 
 ### (2)
 
-Though we might be concerned that our sample does not represent the MTURK population as a whole we have no evidence to support this. There should be concern that someone who opts to participate in a survey about satellite radio might be more likely to be a satelitte radio listener (unless MTURK workers are much more likely to be Sirius listeners). However, we have no evidence to support this claim.
+Though we might be concerned that our sample does not represent the MTURK population as a whole we have no evidence to support this from the data provided. There should be concern that someone who opts to participate in a survey about satellite radio might be more likely to be a satellite radio listener (unless MTURK workers are much more likely to be Sirius listeners). However, we have no evidence to support this claim.
 
-In thinking about this question we read the article [“Who are these people?” Evaluating the demographic characteristics and political preferences of MTurk survey respondents](http://scholar.harvard.edu/dtingley/files/whoarethesepeople.pdf).
+In thinking about this question we read the articles [“Who are these people?” Evaluating the demographic characteristics and political preferences of MTurk survey respondents](http://scholar.harvard.edu/dtingley/files/whoarethesepeople.pdf) and ["Demographics of Mechanical Turk"](https://www.researchgate.net/publication/228140347_Demographics_of_Mechanical_Turk).
 
 ### (3)
 
@@ -641,7 +643,7 @@ $$(`r pop_ci[1]`, `r pop_ci[2]`)$$
 
 ## Brief Report
 
-We have reviewed the survy of `r nrow(survey_results_cleaning)` respondents of the MTURK survey. We have evidence that the survey respondents do not represent that population of the US based on the proportion of Sirius listeners (`r 51.6/321.4` vs `r sirius_prop`) and age, gender, income, and education characteristics. However, assuming that the sample represents the population, we estimate that there are between `r pop_ci[1]` and `r pop_ci[2]` million listeners of "Business Radio Powered by the Wharton School".
+We have reviewed the survey of `r nrow(survey_results_cleaning)` respondents of the MTURK survey. We have evidence that the survey respondents do not represent that population of the US based on the proportion of Sirius listeners (`r 51.6/321.4` vs `r sirius_prop`) and age, gender, income, and education characteristics. However, assuming that the sample represents the population, we estimate that there are between `r pop_ci[1]` and `r pop_ci[2]` million listeners of "Business Radio Powered by the Wharton School".
 
 # Question 3
 
@@ -657,7 +659,7 @@ ggplot(data_frame(x, y), aes(x = x, y = y)) + geom_point(colour = pal538['blue']
     labs(title = "Scatterplot of (x,y) pairs", y = "y", x = "x")
 ```
 
-We use the the lm fuction to create a linear model. 
+We use the the lm function to create a linear model. 
 
 ```{r}
 fit1 <- lm(y ~ x)
@@ -708,7 +710,7 @@ for (i in 1:n_sim){
 }
 ```
 
-We will summarise $\beta_1$.
+We will summarize $\beta_1$.
 
 ```{r }
 summary(b1)
@@ -790,7 +792,7 @@ ml_pay2 %>%
 ```
 
 
-For the 17 years between 1998 and 2014, we summarise the payroll of the 30 teams.
+For the 17 years between 1998 and 2014, we summarize the payroll of the 30 teams.
 
 ```{r}
 ml_pay2 %>%
@@ -806,7 +808,7 @@ ml_pay2 %>%
     ) 
 ```
 
-The boxplot belows show there was a general growth in payroll spending over the 17 years in the MLB. The outlier at the high end of the payroll scale is the New York Yankees.
+The box-plot below show there was a general growth in payroll spending over the 17 years in the MLB. The outlier at the high end of the payroll scale is the New York Yankees.
 
 ```{r}
 ml_pay2 %>%
@@ -835,7 +837,7 @@ ml_pay2 %>%
     print(n = 30)
 ```
 
-Let's summarise this as the yoy growth overall. 
+Let's summarize this as the yoy growth overall. 
 
 ```{r}
 avg_yoy_growth <- 
@@ -859,7 +861,7 @@ avg_yoy_growth <-
 avg_yoy_growth
 ```
 
-Next, we summarise the winning percentage for the 17 years. This is not particularly meaningful, but it is a way to identify any errant values.
+Next, we summarize the winning percentage for the 17 years. This is not particularly meaningful, but it is a way to identify any errant values.
 
 ```{r}
 ml_pay2 %>%
@@ -875,7 +877,7 @@ ml_pay2 %>%
     )
 ```
 
-The boxplot below shows the dispersion of winning percentage overtime. You can see the dot in 2003 is the Detriot Tigers who lost more games than any American League team in history (43-119).
+The box-plot below shows the dispersion of winning percentage overtime. You can see the dot in 2003 is the Detroit Tigers who lost more games than any American League team in history (43-119).
 
 ```{r}
 ml_pay2 %>%
@@ -886,7 +888,7 @@ ml_pay2 %>%
     labs(title = "Winning Percentage", y = "Winning Percentage", x = NULL)
 ```
 
-Let's summarise the two variables across time to get an idea of where the values fall.
+Let's summarize the two variables across time to get an idea of where the values fall.
 
 ```{r}
 ml_pay2 %>%
@@ -963,7 +965,7 @@ ml_pay2 %>%
 Summary of Exploratory Analysis:
 
 1. Payroll has generally been increasing - the yoy average growth is **`r round(avg_yoy_growth * 100,2)`%**.
-2. There does appear to be a linear relationship between payroll and winning percentage, in a given year. The average Person coorrlation coefficient is **`r round(avg_person_cor,3)`**.
+2. There does appear to be a linear relationship between payroll and winning percentage, in a given year. The average Person correlation coefficient is **`r round(avg_person_cor,3)`**.
 
 ## Prediction
 
@@ -982,7 +984,7 @@ lm_by_year <-
   )
 ```
 
-Below is a summary of each model. It appears that some of the models are significant at 95% confidence level, but a number of models are not, noteably 2012, 2014, and 2000. If we look back at the Payroll vs Winning Percentage plot, we can see that correlation for these years are lower than others.
+Below is a summary of each model. It appears that some of the models are significant at 95% confidence level, but a number of models are not, notably 2012, 2014, and 2000. If we look back at the Payroll vs Winning Percentage plot, we can see that correlation for these years are lower than others.
 
 ```{r}
 lm_by_year %>% 
@@ -998,7 +1000,7 @@ summary(lm_by_year$model[[1]])
 
 However, before we interpret these models let's check our model assumptions, aside from linearity, we need to check (1) normality and (2) equal variance of the residuals.
 
-THe normal Q-Q plots below show that the residuals are approximately normal.
+The normal Q-Q plots below show that the residuals are approximately normal.
 
 ```{r}
 lm_by_year %>% 
@@ -1120,7 +1122,7 @@ summary(lm(avgwin ~ . -team -payroll_lag4 -avgwin_lag5 -avgwin_lag1 -payroll_lag
 summary(lm(avgwin ~ . -team -payroll_lag4 -avgwin_lag5 -avgwin_lag1 -payroll_lag5 -payroll_lag3 -payroll_lag2 -avgwin_lag3 -payroll_lag1, data = last_5years))
 ```
 
-Using this process, we would select a model with the two explanatory variables of the average winning percentage from 2 years and 4 years ago. This model seems rather arbitary because there is not something significant about 2 years or 4 years ago.
+Using this process, we would select a model with the two explanatory variables of the average winning percentage from 2 years and 4 years ago. This model seems rather arbitrary because there is not something significant about 2 years or 4 years ago.
 
 Perhaps a better solutions is to build features from the previous years. Below we attempt to using simple exponential smoothing ($\alpha = 0.6$ to weight recent values more) of payroll and winning percentage over 3 years.
 
@@ -1169,7 +1171,7 @@ Despite our efforts above, we find that this is not very helpful. We settle on a
 (ses_fit <- step(lm(avgwin ~ . -team, data = last_2years)))
 ```
 
-Using this model, we can predict the winning precentage for the teams in 2015. To do this we just need to change the width of our rolling simple exponential smoothing function to include 2014 data as this was not being used in the previous prediction of 2014.
+Using this model, we can predict the winning percentage for the teams in 2015. To do this we just need to change the width of our rolling simple exponential smoothing function to include 2014 data as this was not being used in the previous prediction of 2014.
 
 ```{r}
 last_2years_2015 <-
@@ -1248,11 +1250,11 @@ From this plot alone, we can glean a lot information about the Auto dataset.
 5. Most of the cars in the dataset are from America
 6. Cars with 6 and 8 cylinders almost exclusively come from America
 7. Each year in the range of the dataset has a nearly equal number of cars
-8. Generally cars with fewer cyclinders are lighter
+8. Generally cars with fewer cylinders are lighter
 
 More points can be made but this is a strong starting point. 
 
-Before going much futher, let's check to ensure we have no missing data.
+Before going much further, let's check to ensure we have no missing data.
 
 ```{r}
 # Complete.cases shows there is no missing values
@@ -1307,7 +1309,7 @@ auto_fit3 <- lm(mpg ~ horsepower * year, data = Auto_proper)
 summary(auto_fit3)
 ```
 
-The interaction term is significant at the 0.05 level. We have strong evidence against the hypothesis that the coefficient associated with the interaction of year and horespower is equal to 0 (*P-value = `r format(coef(summary(auto_fit3))[, 4][4], scientific = TRUE)`*)
+The interaction term is significant at the 0.05 level. We have strong evidence against the hypothesis that the coefficient associated with the interaction of year and horsepower is equal to 0 (*P-value = `r format(coef(summary(auto_fit3))[, 4][4], scientific = TRUE)`*)
 
 Now the effect of year cannot be interpreted uniformly when holding the other variable horsepower constant as it depends on the value of horsepower. Thus, we show the effect of a 1 year increase in model year (one year newer), on the 25th percentile, median, and 75th percentile horsepower values in our dataset.
 
@@ -1318,7 +1320,7 @@ Now the effect of year cannot be interpreted uniformly when holding the other va
 
 ## Cylinder
 
-We have the cylinder variable coded a categorical variable because the number of cylinders is a characteristic of the car, rather than a feature that can be easily changed. In other words, a 1 unit change in cyclinder is really not meaningful as most engines are made with cylinders with multiples of 2.
+We have the cylinder variable coded a categorical variable because the number of cylinders is a characteristic of the car, rather than a feature that can be easily changed. In other words, a 1 unit change in cylinder is really not meaningful as most engines are made with cylinders with multiples of 2.
 
 ```{r}
 Auto_proper %>%
@@ -1357,11 +1359,11 @@ Cylinders is significant at the 0.01 level. If one of the coefficients of the fa
 anova(auto_fit4, auto_fit5)
 ```
 
-We have strong evidence that the model using categorical variable for cylinder better explains the variation in MPG than the model that uses a quantative variable for cylinder (*P-value = `r format(anova(auto_fit4, auto_fit5)[, 6][[2]], scientific = TRUE)`*)
+We have strong evidence that the model using categorical variable for cylinder better explains the variation in MPG than the model that uses a quantitative variable for cylinder (*P-value = `r format(anova(auto_fit4, auto_fit5)[, 6][[2]], scientific = TRUE)`*)
 
 ### Difference
 
-The fundemental difference between model 1 and model 2 is that model 1 assumes that there can be incremental increaes in cylinders whereas model 2 assumes that there are different types of cylinders. In reality, you cannot increase a cars cylinders by 0.25 so model 1 is not practically valid. Model 2 recognizes the nature of the variable cylinder and how cars are made, thus being a practically applicable model.
+The fundamental difference between model 1 and model 2 is that model 1 assumes that there can be incremental increase in cylinders whereas model 2 assumes that there are different types of cylinders. In reality, you cannot increase a cars cylinders by 0.25 so model 1 is not practically valid. Model 2 recognizes the nature of the variable cylinder and how cars are made, thus being a practically applicable model.
 
 The plots below provide a comparison between the two models.
 
@@ -1591,7 +1593,7 @@ Model 2 has higher AIC and BIC values compared to the other 3 models, indicating
 
 #### Quadratic Term
 
-We notice that we might want a quadratic term for the predictor weight by looking at the following charts. We may be concerned about overfitting, particulary for 6-cylinder cars (i.e. 1970 and 1982). However, we know that we will be predicting the MPG of a 8-cylinder car.
+We notice that we might want a quadratic term for the predictor weight by looking at the following charts. We may be concerned about overfitting, particularly for 6-cylinder cars (i.e. 1970 and 1982). However, we know that we will be predicting the MPG of a 8-cylinder car.
 
 ```{r warnings = FALSE, fig.height = 7}
 Auto_proper2 %>%
@@ -1640,14 +1642,14 @@ Let's compare the AIC and BIC values for all of these models.
 data_frame(
     Model = c("1: Cylinders - all levels", "2: Binary 6-cylinder",
               "3: Binary 6-cylinder & Horsepower","4: Cylinders - all levels & Horsepower",
-              "5: Binary 6-cylinder and Quadratic Weight", "6: Quatric Weight Only")
+              "5: Binary 6-cylinder and Quadratic Weight", "6: Quadratic Weight Only")
     , AIC = AIC(auto_fit9, auto_fit10, auto_fit11, auto_fit12, auto_fit13, auto_fit14)$AIC
     , BIC = BIC(auto_fit9, auto_fit10, auto_fit11, auto_fit12, auto_fit13, auto_fit14)$BIC
 ) %>%
     kable()
 ```
 
-There is only a slight information gain with the binary 6-cylinder variable and we believe this to be overfiting. We will proceed with model 6. Let's check what would happen if we used `regsubsets` with a the quadratic term.
+There is only a slight information gain with the binary 6-cylinder variable and we believe this to be overfitting. We will proceed with model 6. Let's check what would happen if we used `regsubsets` with a the quadratic term.
 
 ```{r}
 auto_fit15 <- regsubsets(mpg ~ . + I(weight^2), data = Auto_proper2 %>% select(-name, -year2), nvmax = 11, method="exhaustive")
@@ -1689,7 +1691,7 @@ The result confirms our thinking: a 3 predictor model with a quadratic weight te
 
 Our final model to predict MPG based on the predictors in the *Auto* dataset is 
 
-$$MPG = \beta_0 + \beta_1 Weight + \beta_2 Weight^2 + \beta_3 + year$$
+$$MPG = \beta_0 + \beta_1 Weight + \beta_2 Weight^2 + \beta_3 year$$
 
 ```{r}
 (auto_fit_final <- summary(auto_fit14))
@@ -1697,7 +1699,7 @@ $$MPG = \beta_0 + \beta_1 Weight + \beta_2 Weight^2 + \beta_3 + year$$
 
 Thus the model is
 
-$$MPG = `r round(coef(auto_fit_final)[, 1][[1]],2)` + `r round(coef(auto_fit_final)[, 1][[2]],2)` Weight + `r as.character(coef(auto_fit_final)[, 1][[3]])` Weight^2 + `r round(coef(auto_fit_final)[, 1][[4]],2)` year$$
+$$MPG = `r round(coef(auto_fit_final)[, 1][[1]],2)` + `r round(coef(auto_fit_final)[, 1][[2]],2)` Weight + `r as.character(round(coef(auto_fit_final)[, 1][[3]], 7))` Weight^2 + `r round(coef(auto_fit_final)[, 1][[4]],2)` year$$
 
 ##### Checking Model Assumptions
 
