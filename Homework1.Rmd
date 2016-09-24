@@ -3,18 +3,23 @@ title: "STATS701 Homework 1"
 author: "Jordan Farrer"
 date: '2016-09-25'
 output:
-  pdf_document:
-    number_sections: yes
-    toc: yes
   html_document:
     css: style.css
     number_sections: yes
     theme: flatly
     toc: yes
     toc_float: yes
+  pdf_document:
+    number_sections: yes
+    toc: yes
 ---
 
 # Setup
+
+
+Full repo: [https://github.com/jrfarrer/stats701_hw1/](https://github.com/jrfarrer/stats701_hw1/)
+
+Published file: [https://jrfarrer.github.io/stats701_hw1/](https://jrfarrer.github.io/stats701_hw1/)
 
 Begin by setting up the R session, creating a logger function, and loading packages.
 
