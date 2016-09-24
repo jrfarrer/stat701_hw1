@@ -3,15 +3,15 @@ title: "STATS701 Homework 1"
 author: "Jordan Farrer"
 date: '2016-09-25'
 output:
+  pdf_document:
+    number_sections: yes
+    toc: yes
   html_document:
     css: style.css
     number_sections: yes
     theme: flatly
     toc: yes
     toc_float: yes
-  pdf_document:
-    number_sections: yes
-    toc: yes
 ---
 
 # Setup
@@ -1746,11 +1746,11 @@ data_frame(
 
 ##### Statistical Inference
 
-+ The F-test for regression provides extremely strong evidence against the hypothesis that none of the variables are related to the response MPG (*P-value ≈ 0*).
++ The F-test for regression provides extremely strong evidence against the hypothesis that none of the variables are related to the response MPG (*P-value $\approx$ 0*).
 + The Multiple R2 is `r round(auto_fit_final$r.squared,3)` indicating that `r 100*round(auto_fit_final$r.squared, 1)`% of the variation in car MPG is explained by the variation in weight and model year, so the model will be good for prediction, however normality is not satisfied so predictions may be unreliable.
 + The intercept is not meaningful (*MPG = 0*).
-* We have extremely strong evidence against the hypotheses that the coefficients associated with weight are equal to 0 (*P-values ≈ 0*).
-+ We have extremely evidence against the hypothesis that the coefficient associated with model year is equal to 0 (*P-value ≈ 0*).
++ We have extremely strong evidence against the hypotheses that the coefficients associated with weight are equal to 0 (*P-values $\approx$ 0*).
++ We have extremely evidence against the hypothesis that the coefficient associated with model year is equal to 0 (*P-value $\approx$ 0*).
 
 The effects associated with weight are difficult to describe because of the quadratic term. 
 Holding the effect of weight constant, each additional year of car (newer model years), a car's MPG increases by `r coef(auto_fit_final)[,1][[4]]`.
