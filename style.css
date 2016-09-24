@@ -1,0 +1,15 @@
+.dt-center {
+    vertical-align: middle !important;
+}
+.body {
+	font-size: 9px;
+}
+code.r {
+  font-size: 10px;
+}
+pre { 
+  font-size: 10px
+}
+.table td {
+	white-space: nowrap;
+}

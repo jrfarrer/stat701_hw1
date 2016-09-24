@@ -1,0 +1,1762 @@
+---
+title: "STATS701 Homework 1"
+author: "Jordan Farrer"
+date: '2016-09-25'
+output:
+  html_document:
+    css: style.css
+    theme: flatly
+    toc: yes
+    toc_float: yes
+    number_sections: true
+  pdf_document:
+    toc: yes
+    number_sections: true
+---
+
+# Setup
+
+Begin by setting up the R session, creating a logger function, and loading packages.
+
+```{r setup1, include=FALSE}
+# Set options for the rmarkdown file
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, fig.align = 'center')
+```
+
+```{r setup2, messages = FALSE}
+# Set the seed for reproducibility
+set.seed(44)
+# Set the locale of the session so languages other than English can be used
+invisible(Sys.setlocale("LC_ALL", "en_US.UTF-8"))
+# Prevent printing in scientific notation
+options(scipen = 999, digits = 4)
+
+# Create a logger function
+logger <- function(msg, level = "info", file = log_file) {
+    cat(paste0("[", format(Sys.time(), "%Y-%m-%d %H:%M:%S.%OS"), "][", level, "] ", msg, "\n"), file = stdout())
+}
+
+# Set the project directory
+base_dir <- ''
+data_dir <- paste0(base_dir, "data/")
+code_dir <- paste0(base_dir, "code/")
+viz_dir <- paste0(base_dir, "viz/")
+
+dir.create(data_dir, showWarnings = FALSE)
+dir.create(code_dir, showWarnings = FALSE)
+dir.create(viz_dir, showWarnings = FALSE)
+```
+
+```{r Load Packages}
+# Create a function that will be used to load/install packages
+fn_load_packages <- function(p) {
+  if (!is.element(p, installed.packages()[,1]) || (p =="DT" && !(packageVersion(p) > "0.1"))) {
+    if (p == "DT") {
+      devtools::install_github('rstudio/DT')
+    } else {
+      install.packages(p, dep = TRUE, repos = 'http://cran.us.r-project.org')
+    }
+  }
+  a <- suppressPackageStartupMessages(require(p, character.only = TRUE))
+  if (a) {
+    logger(paste0("Loaded package ", p, " version ", packageVersion(p)))
+  } else {
+    logger(paste0("Unable to load packages ", p))
+  }
+}
+# Create a vector of packages
+packages <- c('dplyr','tidyr','readr','stringr','ggplot2','ggthemes','knitr','readxl',
+              'broom','forecast','ISLR','GGally','gridExtra','leaps','extrafont')
+# Use function to load the required packages
+invisible(lapply(packages, fn_load_packages))
+```
+
+```{r}
+# Installs fonts
+#system(paste0("cp -r ",viz_dir,"fonts/. ~/Library/Fonts/"))
+```
+
+```{r Create palette and theme}
+# Create a color palette
+pal538 <- ggthemes_data$fivethirtyeight
+
+# Create a theme to use throughout the analysis
+theme_jrf <- function(base_size = 8, base_family = "DecimaMonoPro") {
+    theme(
+        plot.background = element_rect(fill = "#F0F0F0", colour = "#606063"), 
+        panel.background = element_rect(fill = "#F0F0F0", colour = NA), 
+        panel.border = element_blank(),
+        panel.grid.major =   element_line(colour = "#D7D7D8"),
+        panel.grid.minor =   element_line(colour = "#D7D7D8", size = 0.25),
+        panel.margin =       unit(0.25, "lines"),
+        panel.margin.x =     NULL,
+        panel.margin.y =     NULL,
+        axis.ticks.x = element_blank(), 
+        axis.ticks.y = element_blank(),
+        axis.title = element_text(colour = "#A0A0A3"),
+        axis.text.x = element_text(vjust = 1, family = 'Helvetica', colour = '#3C3C3C'),
+        axis.text.y = element_text(hjust = 1, family = 'Helvetica', colour = '#3C3C3C'),
+        legend.background = element_blank(),
+        legend.key = element_blank(), 
+        plot.title = element_text(face = 'bold', colour = '#3C3C3C', hjust = 0),
+        text = element_text(size = 9, family = "DecimaMonoPro"),
+        title = element_text(family = "DecimaMonoPro-Bold")
+        
+    )
+}
+```
+
+# Question 2
+
+## Data Loading
+
+Let's use Hadley's readr package to load the dataset, using the col_name parameter to set the column names of the tibble.
+
+```{r Load and Clean data, message = FALSE, warning = FALSE}
+# Load the csv with meaningful column names
+survey_results <- read_csv(paste0(data_dir,'Survey_results_final.csv'), skip = 1,
+                           col_names = c('hitid','hittypeid','title','description','keywords',
+                            'reward','creationtime','maxassignments','requesterannotation',
+                            'assignmentdurationinseconds','autoapprovaldelayinseconds',
+                            'expiration','numberofsimilarhits','lifetimeinseconds',
+                            'assignmentid','workerid','assignmentstatus','accepttime',
+                            'submittime','autoapprovaltime','approvaltime','rejectiontime',
+                            'requesterfeedback','worktime','lifetimeapprovalrate',
+                            'last30daysapprovalrate','last7daysapprovalrate','age',
+                            'education','gender','income','sirius','wharton','approve','reject'))
+
+# Print a few records in the tibble
+survey_results %>% 
+    select(age, education, gender, income, sirius, wharton, worktime) 
+
+# Put into a new tibble we'll use for cleaning (there will be a final later)
+survey_results_cleaning <- survey_results
+```
+
+## Data Cleaning
+
+We'll sequentially clean each of the primary variables of the dataset and create exploratory summaries.
+
+### Age
+
+Let's quickly summarize the age variable, noting that it is a character.
+
+```{r Data cleaning - Age1}
+survey_results_cleaning %>% group_by(age) %>% summarise(cnt = n()) %>% arrange(age)
+```
+
+We correct some errant values, using our judgement as **data analysts** and plot a histogram.
+
+```{r Data cleaning - Age2}
+survey_results_cleaning <-
+    survey_results %>%
+    mutate(
+        age2 = ifelse(age == 'Eighteen (18)', "18", ifelse(age == 'female', NA, ifelse(age == "27`", "27", age)))
+        , age2 = as.integer(age2)
+    )
+
+ggplot(survey_results_cleaning, aes(x = age2)) + 
+    geom_point(aes(x = 4, y = 1), shape = 1, colour = pal538['red'], fill = NA, size = 6, stroke = 1) + 
+    geom_point(aes(x = 223, y = 1), shape = 1, colour = pal538['red'], fill = NA, size = 6, stroke = 1) + 
+    geom_histogram(binwidth = 1, fill = pal538['blue']) +
+    theme_jrf() +
+    scale_x_continuous(expand = c(0.05, 0.01)) + scale_y_continuous(expand = c(0.02, 0.01)) + 
+    labs(title = "Age", y = "Count", x = "Age (years)")
+```
+
+It looks like we still missed some bad values.
+
+```{r Data cleaning - Age3}
+sort(unique(survey_results_cleaning$age2))
+```
+
+We fix those too and plot the histogram.
+
+```{r Data cleaning - Age4}
+survey_results_cleaning <-
+    survey_results_cleaning %>%
+    mutate(
+        age3 = ifelse(age2 %in% c(4, 223), NA, age2)
+    )
+
+ggplot(survey_results_cleaning, aes(x = age3)) + geom_histogram(binwidth = 1, fill = pal538['blue']) +
+    theme_jrf() +
+    scale_x_continuous(expand = c(0.05, 0.01)) + scale_y_continuous(expand = c(0.02, 0.01)) + 
+    labs(title = "Age", y = "Count", x = "Age (years)")
+```
+
+### Education
+
+Let's look at the unique values and counts.
+
+```{r Data cleaning - Education1}
+survey_results_cleaning %>% group_by(education) %>% summarise(cnt = n()) %>% arrange(education)
+```
+
+It appears that `r nrow(filter(survey_results_cleaning, education == "select one"))` respondents left the survey on the default which read 'select one'. We'll update that to 'Other' and modify this variable to be a factor.
+
+```{r Data cleaning - Education2}
+survey_results_cleaning <-
+    survey_results_cleaning %>% 
+    mutate(
+        education2 = ifelse(education == "select one", "Other", education)
+        , education2 = factor(education2, levels = c('Less than 12 years; no high school diploma'
+                                                        , 'High school graduate (or equivalent)'
+                                                        , 'Some college, no diploma; or Associate’s degree'
+                                                        , 'Bachelor’s degree or other 4-year degree'
+                                                        , 'Graduate or professional degree'
+                                                        , 'Other'))
+    )
+
+survey_results_cleaning %>% group_by(education2) %>% summarise(cnt = n()) %>% arrange(education2)
+```
+
+### Gender
+
+We'll summarise the gender variable. 
+
+```{r Data cleaning - Gender1}
+survey_results_cleaning %>% group_by(gender) %>% summarise(cnt = n()) %>% arrange(gender)
+```
+
+We update this to be a factor.
+
+```{r Data cleaning - Gender2}
+survey_results_cleaning <-
+    survey_results_cleaning %>%
+    mutate(gender2 = as.factor(gender))
+
+survey_results_cleaning %>% 
+    group_by(gender2) %>% 
+    summarise(cnt = n()) %>% 
+    arrange(gender2) %>%
+    mutate(prop = cnt / sum(cnt))
+```
+
+### Income
+
+```{r Data clean - Income1}
+survey_results_cleaning %>% group_by(income) %>% summarise(cnt = n()) %>% arrange(income)
+```
+
+Let's convert this to a factor variable.
+
+```{r Data clean - Income2}
+survey_results_cleaning <-
+    survey_results_cleaning %>% 
+    mutate(
+        income2 = factor(income, levels = c('Less than $15,000'
+                                            , '$15,000 - $30,000'
+                                            , '$30,000 - $50,000'
+                                            , '$50,000 - $75,000'
+                                            , '$75,000 - $150,000'
+                                            , 'Above $150,000'))
+    )
+
+survey_results_cleaning %>% group_by(income2) %>% summarise(cnt = n()) %>% arrange(income2)
+```
+
+### Sirius and Wharton
+
+```{r Data clean - sirius_wharton1}
+survey_results_cleaning %>% group_by(sirius) %>% summarise(cnt = n()) %>% arrange(sirius)
+survey_results_cleaning %>% group_by(wharton) %>% summarise(cnt = n()) %>% arrange(wharton)
+```
+
+Let's convert these to factors for better analysis capabilities.
+
+```{r Data clean - sirius_wharton2}
+survey_results_cleaning <-
+    survey_results_cleaning %>%
+    mutate(
+        sirius2 = factor(sirius, levels = c("Yes","No"))
+        , wharton2 = factor(wharton, levels = c("Yes","No"))
+    )
+
+survey_results_cleaning %>% group_by(sirius2) %>% summarise(cnt = n()) %>% arrange(sirius2)
+survey_results_cleaning %>% group_by(wharton2) %>% summarise(cnt = n()) %>% arrange(wharton2)
+```
+
+### Worktime
+
+```{r Data clean - Worktime1, fig.align = 'center'}
+ggplot(survey_results_cleaning, aes(x = worktime)) + geom_histogram(binwidth = 1, fill = pal538['blue']) + 
+    theme_jrf() +
+    scale_x_continuous(expand = c(0.05, 0.01)) + scale_y_continuous(expand = c(0.02, 0.01)) + 
+    labs(title = "Worktime", y = "Count", x = "Worktime in Seconds")
+```
+
+### Final Data Frame
+
+We select and rename the columns.
+
+```{r Data Clean - Final}
+survey_results_cleaning <- 
+    survey_results_cleaning %>%
+    select(age3, education2, gender2, income2, sirius2, wharton2, worktime) %>%
+    rename(
+        age = age3
+        , education = education2
+        , gender = gender2
+        , income = income2
+        , sirius = sirius2
+        , wharton = wharton2
+    )
+```
+
+Let's review the records with missing data. 
+
+```{r}
+survey_results_cleaning[!complete.cases(survey_results_cleaning), ] %>% print(width = Inf)
+```
+
+We will remove the `r nrow(filter(survey_results_cleaning, is.na(sirius) | is.na(wharton)))` records that have NAs for sirius or wharton. Without information about the response, we will have trouble making an estimate of *p*, the porportion of Sirius listeners who listened to Business Radio Powered by the Wharton School.
+
+```{r}
+survey_results_cleaning %>%
+    filter(is.na(sirius) | is.na(wharton))
+``` 
+
+We put together a final data frame.
+
+```{r}
+survey_results_final <- 
+    survey_results_cleaning %>%
+    filter(!is.na(sirius) & !is.na(wharton))
+```
+
+## Summary
+
+We previously listened to the podcast Planet Money's  [episode](http://www.npr.org/sections/money/2015/01/30/382657657/episode-600-the-people-inside-your-machine) about Amazon's Mechanical Turk program.
+
+```{r Summary - Summary Stata}
+sapply(survey_results_final, summary)
+```
+
+|Variable|Class|Description|
+|---|-----|-----|
+|Age|Integer|The age in years of the survey respondent|
+|Education|Factor|Level of education attain by the survey respondent|
+|Gender|Factor|Gender indicated by the survey respondent (Male or Female)|
+|Income|Factor|Income level provided by the survey respondent|
+|Sirius|Factor|Response to "Have you ever listened to Sirius Radio?"|
+|Wharton|Factor|Response to "Have you ever listened to Sirius Business Radio by Wharton?"|
+|Worktime|Integer|Number of second spent completing the survey|
+
+## Sample properties
+
+### (1)
+
+On the surface, we have no reason to believe that the MTURK dataset could be representative of the US population. Knowledge of MTURK is not universial and attracts particular types of individuals willing to perform many small tasks for a minor reward (from Planet Money podcast). 
+
+First, we quickly see that the porportion of Sirius listeners is much higher than the given proportion. If the US population is [321.4 million](https://www.census.gov/quickfacts/), then the proportion of Sirius listeners is 
+
+$$\frac{51.6}{321.4} = `r round(51.6/321.4, 4)`$$
+
+However, we quickly see that in the survey data from MTURK, the proportion of Sirius listeners is much higher.
+
+```{r}
+(sirius_prop <- survey_results_final %>% summarise(prop_sirius = sum(sirius == "Yes") / n()))
+```
+
+We see that of the survey respondents, `r round(100* sirius_prop,2)`% say that have listened to Sirius.
+
+Second, in order to answer the question "Does this appear to be a random sample from the US population?" empirically we can look at the four characteristics in our final dataset
+
+1. Age
+2. Gender
+3. Education
+4. Income
+
+For age and gender, we download a table called "Population by Age" from US Census Bureau's [Current Population Survey](http://www.census.gov/population/age/data/files/2012/2012gender_table1.csv) in 2012.
+
+```{r}
+census_age_gender <- read_csv(url("http://www.census.gov/population/age/data/files/2012/2012gender_table1.csv"), 
+                              skip = 6, 
+                              col_names = c("age", "all","all_percent","male","male_percent","female","female_percent"), 
+                              col_types = cols(age = col_character(),
+                                              all = col_number(),
+                                              all_percent = col_number(),
+                                              male = col_number(),
+                                              male_percent = col_number(),
+                                              female = col_number(),
+                                              female_percent = col_number())
+                              )
+
+census_age_gender
+```
+
+We will need to bucket our MTURK dataset to match the categories of the Census Bureau's. In doing so we remove the `r nrow(filter(survey_results_final, age < 20 | is.na(gender)))` records with an age 18-19 and without a listed gender.
+
+```{r}    
+actual <- 
+    survey_results_final %>% 
+        filter(age >= 20 & !is.na(gender)) %>%
+        mutate(age_bucket = paste0(floor(age / 10), "0 to ", floor(age / 10),"9 years")) %>%
+        group_by(age_bucket, gender) %>%
+        summarise(
+            n = n()
+        ) %>%
+        ungroup() %>%
+        mutate(source = "Actual") %>%
+        select(source, age_bucket, gender, n)
+
+actual_size <- sum(actual$n)
+
+actual
+```
+
+Next we clean the Census Bureau's dataset and scale the expected number of individuals to our dataset size of `r actual_size`.
+
+```{r}    
+expected <- 
+    census_age_gender %>%
+        filter(row_number() <= 19) %>%
+        select(age, male, female) %>%
+        mutate(age = gsub("\\.","", age)) %>%
+        filter(!(age %in% c('Under 5 years','All ages','5 to 9 years','10 to 14 years','15 to 19 years'))) %>%
+        mutate(age_bucket = paste0(substring(age,1,1), "0 to ", substring(age,1,1),"9 years")) %>%
+        mutate(age_bucket = ifelse(age_bucket == "80 to 89 years", "80 years plus", age_bucket)) %>%
+        select(-age) %>%
+        gather(gender, n, -age_bucket) %>%
+        group_by(age_bucket, gender) %>%
+        summarise(n = sum(n)) %>%
+        ungroup() %>%
+        mutate(gender = paste0(toupper(substring(gender,1,1)), substring(gender, 2, 999))) %>%
+        mutate(percent = n / sum(n)) %>%
+        mutate(Expected = actual_size * percent) %>%
+        select(age_bucket, gender, Expected) %>%
+        gather(source, n, -age_bucket, -gender) %>%
+        select(source, age_bucket, gender, n)
+
+expected
+```
+
+Then we can combine the two.
+
+```{r}
+actual_expected <- 
+    union(actual, expected) %>%
+        mutate(
+            source = factor(source, levels = c("Actual","Expected"))
+            , gender = factor(gender, levels = c("Male","Female"))
+        )
+```    
+  
+We find that the MTURK sample is younger and more male the US population. For example, in a sample `r actual_size` we would expect to find `r actual_expected %>% filter(source  == "Expected" & age_bucket == "20 to 29 years" & gender == "Male") %>% select(n) %>% unlist()` males, 20 to 29 years old. However, in the MTURK sample there are `r actual_expected %>% filter(source  == "Actual" & age_bucket == "20 to 29 years" & gender == "Male") %>% select(n) %>% unlist()` males, 20 to 29 years old, or `r actual_expected %>% filter(source  == "Actual" & age_bucket == "20 to 29 years" & gender == "Male") %>% select(n) %>% unlist() -  actual_expected %>% filter(source  == "Expected" & age_bucket == "20 to 29 years" & gender == "Male") %>% select(n) %>% unlist()` more than expected. In addition, in the US population we would expect `r actual_expected %>% group_by(source, gender) %>% summarise(sum = sum(n)) %>% mutate(p = round(100 * sum / sum(sum), 1)) %>% filter(source == "Expected" & gender == "Female") %>% unlist()`% females and `r actual_expected %>% group_by(source, gender) %>% summarise(sum = sum(n)) %>% mutate(p = round(100 * sum / sum(sum), 1)) %>% filter(source == "Expected" & gender == "Male") %>% unlist()`% males. However, the MTUK sample has `r actual_expected %>% group_by(source, gender) %>% summarise(sum = sum(n)) %>% mutate(p = round(100 * sum / sum(sum), 1)) %>% filter(source == "Actual" & gender == "Female") %>% unlist()`% females and `r actual_expected %>% group_by(source, gender) %>% summarise(sum = sum(n)) %>% mutate(p = round(100 * sum / sum(sum), 1)) %>% filter(source == "Actual" & gender == "Male") %>% unlist()`% males.
+    
+```{r fig.height=7, fig.width=8}    
+actual_expected %>%    
+    ggplot(aes(x = source, y = n, fill = source)) + 
+    geom_bar(stat = "identity") + 
+    coord_flip() + 
+    facet_grid(age_bucket ~ gender, switch = "y") +
+    theme_jrf() + 
+    labs(title = "MTURK is younger and more male than US Population", 
+         y = paste0("Respondents to Survey (", actual_size, ")"), x = NULL) +
+    scale_fill_manual(values = c(Actual = pal538['blue'][[1]], Expected = pal538['red'][[1]])) +
+    guides(fill = FALSE) +
+    geom_text(aes(label = round(n, 0)), hjust = 0, family = "DecimaMonoPro") +
+    scale_y_continuous(expand = c(0.02, 40)) +
+    theme(strip.text.y = element_text(size = 6))
+```
+
+Looking at education, we download data the US Census Bureau's [Current Population Report ](https://www.census.gov/hhes/socdemo/education/data/cps/2015/Table%201-01.csv) that shows statistics on educational attainment. The data is by age and gender, but we aggregate the age section to the total population to compare to the MTURK sample. The table below shows expected vs actual proportions.
+
+```{r messages = FALSE}
+census_edu <- read_csv(url("https://www.census.gov/hhes/socdemo/education/data/cps/2015/Table%201-01.csv"), 
+                              skip = 5)
+
+edu_expected <-
+    census_edu %>%
+    select(1, 3:17) %>%
+    filter(row_number() %in% c(2:15)) %>%
+    select(-X1) %>%
+    mutate(`Doctoral degree` = as.integer(gsub(",","",`Doctoral degree`))) %>%
+    summarise_each(funs(sum(., na.rm =TRUE))) %>%
+    gather(education, n) %>%
+    mutate(
+        education = ifelse(education == "None", "Other", 
+                        ifelse(education %in% c("1st - 4th grade","5th - 6th grade","7th - 8th grade","9th grade",
+                                                   "10th grade","11th grade /2"), "Less than 12 years; no high school diploma",
+                        ifelse(education == "High school graduate", "High school graduate (or equivalent)",
+                        ifelse(education %in% c("Some college, no degree","Associate's degree, occupational",
+                                                "Associate's degree, academic"), 
+                                                "Some college, no diploma; or Associate’s degree",
+                        ifelse(education == "Bachelor's degree", "Bachelor’s degree or other 4-year degree", 
+                        ifelse(education %in% c("Master's degree","Professional degree","Doctoral degree"), 
+                               "Graduate or professional degree", NA))))))
+        , education = factor(education, levels = c('Less than 12 years; no high school diploma'
+                                                        , 'High school graduate (or equivalent)'
+                                                        , 'Some college, no diploma; or Associate’s degree'
+                                                        , 'Bachelor’s degree or other 4-year degree'
+                                                        , 'Graduate or professional degree'
+                                                        , 'Other'))
+    ) %>%
+    group_by(education) %>%
+    summarise(expected_n = sum(n)) %>%
+    ungroup() %>%
+    mutate(expected = expected_n / sum(expected_n))
+
+edu_actual <-
+    survey_results_final %>%
+    group_by(education) %>%
+    summarise(actual_n = n()) %>%
+    ungroup() %>%
+    mutate(actual = actual_n / sum(actual_n))
+    
+comparison_tbl_edu <-
+        inner_join(edu_expected, edu_actual, by = c("education")) %>%
+        mutate(
+            expected = paste0(round(100*expected,1), "%")
+            , actual = paste0(round(100*actual,1), "%")
+        ) %>%
+        select(-actual_n, -expected_n)
+
+comparison_tbl_edu
+```
+
+We find that the MTURK sample over indexes on people have been to college or graduated from college. Noteably, in a sample of the US population we would expect to find `r comparison_tbl_edu %>% filter(education == "Some college, no diploma; or Associate’s degree") %>% select(expected) %>% unlist()` of people to have 'Some college, no diploma; or Associate’s degree', but in the MTURK sample `r comparison_tbl_edu %>% filter(education == "Some college, no diploma; or Associate’s degree") %>% select(actual) %>% unlist()` fit this category of educational attainment.
+
+We use a proportions test to determine if the proportions are indeed different.
+
+```{r}
+edu_matrix <- inner_join(edu_expected, edu_actual, by = c("education")) %>% select(expected_n, actual_n) %>% as.matrix
+(edu_prop_test <- prop.test(edu_matrix))
+```
+
+Using `r edu_prop_test$method` we have strong evidence against the null hypothesis that the proporotions in the education groups are the same. This provides further evidence that the MTURK sample does not represent the US population.
+
+Looking at income, we download from the US Census Bureau statistics on [personal income](http://www.census.gov/data/tables/time-series/demo/income-poverty/cps-pinc/pinc-01.html).
+
+```{r}
+download.file("http://www2.census.gov/programs-surveys/cps/tables/pinc-01/2016/pinc01_1_1_1.xls",
+              destfile = paste0(data_dir, 'pinc01_1_1_1.xls'), mode = "wb")
+income <- read_excel(paste0(data_dir, 'pinc01_1_1_1.xls'), skip = 8)
+
+income_expected <- 
+    income[, c(4:44)] %>% 
+    filter(row_number() == 2) %>%
+    gather(income, n) %>%
+    mutate(
+        n = as.integer(n)
+    ) %>%
+    select(income, n) %>% 
+    mutate(
+        income = ifelse(row_number() <= 6, "Less than $15,000", 
+                        ifelse(row_number() <= 12, "$15,000 - $30,000",
+                               ifelse(row_number() <= 20, "$30,000 - $50,000",
+                                      ifelse(row_number() <= 30, "$50,000 - $75,000",
+                                             "Above $75,000"))))
+        , income = factor(income, levels = c("Less than $15,000","$15,000 - $30,000", "$30,000 - $50,000",
+                                             "$50,000 - $75,000", "Above $75,000"))
+    ) %>%
+    group_by(income) %>%
+    summarise(
+        n = sum(n)
+    ) %>%
+    ungroup() %>%
+    mutate(expected = n / sum(n)) %>%
+    mutate(expected_n = n) %>%
+    select(income, expected_n, expected)
+
+income_actual <- 
+    survey_results_final %>%
+    filter(!is.na(income)) %>%
+    mutate(
+        income = as.character(income)
+        , income = ifelse(income %in% c("$75,000 - $150,000","Above $150,000"), "Above $75,000", income)
+        , income = factor(income, levels = c("Less than $15,000","$15,000 - $30,000", "$30,000 - $50,000",
+                                             "$50,000 - $75,000", "Above $75,000"))
+    ) %>%
+    group_by(income) %>%
+    summarise(
+        n = n()
+    ) %>%
+    ungroup() %>%
+    mutate(actual = n / sum(n)) %>%
+    mutate(actual_n = n) %>%
+    select(income, actual_n, actual)
+
+comparison_tbl_income <-
+    inner_join(income_expected, income_actual, by = c("income")) %>%
+        mutate(
+            expected = paste0(round(100*expected,1), "%")
+            , actual = paste0(round(100*actual,1), "%")
+        ) %>%
+        select(-actual_n, -expected_n)
+
+comparison_tbl_income
+```
+
+Looking at the table above we see there is a smaller percentage of lower income respondents than expected (`r comparison_tbl_income %>% filter(income == "Less than $15,000") %>% select(expected) %>% unlist()` vs. `r comparison_tbl_income %>% filter(income == "Less than $15,000") %>% select(actual) %>% unlist()`). In addition, there is larger percentage of high earning respondents than expected (`r comparison_tbl_income %>% filter(income == "Above $75,000") %>% select(expected) %>% unlist()` vs. `r comparison_tbl_income %>% filter(income == "Above $75,000") %>% select(actual) %>% unlist()`).
+
+We use a proportions test to determine if the proportions are indeed different.
+
+```{r}
+income_matrix <- inner_join(income_expected, income_actual, by = c("income")) %>% select(expected_n, actual_n) %>% as.matrix
+(income_prop_test <- prop.test(income_matrix))
+```
+
+Using `r income_prop_test$method` we have strong evidence against the null hypothesis that the proporotions in the income groups are the same. This provides further evidence that the MTURK sample does not represent the US population.
+
+### (2)
+
+Though we might be concerned that our sample does not represent the MTURK population as a whole we have no evidence to support this. There should be concern that someone who opts to participate in a survey about satellite radio might be more likely to be a satelitte radio listener (unless MTURK workers are much more likely to be Sirius listeners). However, we have no evidence to support this claim.
+
+In thinking about this question we read the article [“Who are these people?” Evaluating the demographic characteristics and political preferences of MTurk survey respondents](http://scholar.harvard.edu/dtingley/files/whoarethesepeople.pdf).
+
+### (3)
+
+In order to estimate the number of Wharton listeners in the US we will create a 95% confidence interval of the proportion of Wharton listeners in the MTURK dataset and multiply this by the Sirius radio listeners (51.6 million).
+
+$$\hat{p} \pm   z \sqrt{\frac{\hat{p}(1-\hat{p})}{n}}$$
+
+```{r}
+p_hat <- 
+    survey_results_final %>% 
+    filter(sirius == "Yes") %>% 
+    summarise(p_hat = sum(wharton == "Yes") / n()) %>% 
+    unlist()
+
+ci <- c(p_hat - qt(0.975, nrow(survey_results_final)) * sqrt(p_hat*(1-p_hat) / nrow(survey_results_final))
+        , p_hat + qt(0.975, nrow(survey_results_final)) * sqrt(p_hat*(1-p_hat) / nrow(survey_results_final)))
+
+pop_p <- p_hat * 51.6
+pop_ci <- round(ci * 51.6,2)
+```
+
+We estimate the sample proportion to be **`r p_hat`** and the 95% confidence interval to be
+
+$$(`r ci[1]`, `r ci[2]`)$$
+
+Thus we estimate the size of the Wharton listeners in the US to be **`r round(pop_p,2)`** million and the 95% confidence interval to be (in millions)
+
+$$(`r pop_ci[1]`, `r pop_ci[2]`)$$
+
+## Brief Report
+
+We have reviewed the survy of `r nrow(survey_results_cleaning)` respondents of the MTURK survey. We have evidence that the survey respondents do not represent that population of the US based on the proportion of Sirius listeners (`r 51.6/321.4` vs `r sirius_prop`) and age, gender, income, and education characteristics. However, assuming that the sample represents the population, we estimate that there are between `r pop_ci[1]` and `r pop_ci[2]` million listeners of "Business Radio Powered by the Wharton School".
+
+# Question 3
+
+## Part A
+
+```{r}
+x <- seq(0, 1, length = 40)
+y <- 1 + 1.2*x + rnorm(40, mean = 0, sd = 2)
+
+ggplot(data_frame(x, y), aes(x = x, y = y)) + geom_point(colour = pal538['blue']) + 
+    theme_jrf() +
+    scale_x_continuous(expand = c(0.05, 0.01)) + scale_y_continuous(expand = c(0.02, 0.01)) + 
+    labs(title = "Scatterplot of (x,y) pairs", y = "y", x = "x")
+```
+
+We use the the lm fuction to create a linear model. 
+
+```{r}
+fit1 <- lm(y ~ x)
+summary(fit1)
+```
+
+We find that $\beta_0=`r fit1$coefficients['(Intercept)']`$ and $\beta_1=`r fit1$coefficients['x']`$. Next we overlay LS equation on the scatterplot.
+
+```{r fig.align = 'center'}
+ggplot(data = fit1$model, aes(x = x, y = y)) + geom_point(colour = pal538['blue']) + 
+    geom_smooth(method="lm", se = TRUE, colour = pal538['red']) +
+    theme_jrf() +
+    scale_x_continuous(expand = c(0.05, 0.01)) + scale_y_continuous(expand = c(0.02, 0.01)) + 
+    labs(title = "LS Equation", y = "y", x = "x")
+```
+
+The 95% confidence interval for $\beta_1$ is 
+$$`r fit1$coefficients['x']` \pm 1.96\times `r coef(summary(fit1))[, "Std. Error"]["x"]`$$ 
+or
+$$(`r fit1$coefficients['x'] - qt(0.975, 38)*coef(summary(fit1))[, "Std. Error"]["x"]`, `r fit1$coefficients['x'] + qt(0.975, 38)*coef(summary(fit1))[, "Std. Error"]["x"]`)$$ 
+
+This 95% confidence interval does indeed contain the true $\beta_1$ which is $1.2$.
+
+The RSE is `r sigma(fit1)` which is very close to the true standard deviation of the error of $\sigma = 2$.
+
+
+## Part B
+
+We begin with the given simulation code chunk:
+
+```{r }
+x <- seq(0, 1, length = 40)
+n_sim <- 100
+b1 <- numeric(n_sim) # nsim many LS estimates of beta1 (=1.2) 
+upper_ci <- numeric(n_sim) # lower bound
+lower_ci <- numeric(n_sim) # upper bound
+t_star <- qt(0.975, 38)
+
+# Carry out the simulation 
+for (i in 1:n_sim){
+    y <- 1 + 1.2 * x + rnorm(40, sd = 2) 
+    lse <- lm(y ~ x)
+    lse_out <- summary(lse)$coefficients 
+    se <- lse_out[2, 2]
+    b1[i] <- lse_out[2, 1] 
+    upper_ci[i] <- b1[i] + t_star * se 
+    lower_ci[i] <- b1[i] - t_star * se
+}
+```
+
+We will summarise $\beta_1$.
+
+```{r }
+summary(b1)
+
+ggplot(data = data_frame(b1 = b1), aes(x = b1)) + geom_histogram(binwidth = 0.2, fill = pal538['blue']) + 
+    geom_vline(xintercept = 1.2, colour = pal538['red']) +
+    geom_label(aes(x = 1.2, y = Inf, label = 'beta[1] == 1.2'), 
+               vjust = "inward", hjust = "inward", parse = TRUE, colour = pal538['red']) +
+    theme_jrf() +
+    scale_x_continuous(expand = c(0.05, 0.01)) + scale_y_continuous(expand = c(0.02, 0.01)) + 
+    labs(title = expression("Histogram of LS estimates "~b[1]~" of "~beta[1]), y = "Count", x = expression(b[1]))
+```
+
+The sampling distribution does agree with the theory as most of the LS estimate of $\beta_1$ are close to 1.2.
+
+```{r }
+ci <- data_frame(n = 1:100, b1 = b1 , lower_ci = lower_ci, upper_ci = upper_ci,
+                 covers = factor(ifelse(lower_ci < 1.2 & upper_ci > 1.2, "Yes", "No"), levels = c("Yes", "No")))
+
+```
+
+We find that `r sum(ci$covers == "Yes")` out of `r nrow(ci)` 95% confidence intervals cover the true $\beta_1$. We show this graphically below, where the red intervals do not cover the true $\beta_1$ and the green intervals do cover the true $\beta_1$.
+
+```{r fig.align = 'center', fig.width=7, fig.height=7}
+ggplot(data = ci) + 
+    geom_vline(xintercept = 1.2) +
+    geom_segment(aes(x = lower_ci, xend = upper_ci, y = n, yend = n, colour = covers)) +
+    labs(title = "100 Sample Confidence Intervals", y = NULL, x = expression(beta[1])) +
+    geom_label(aes(x = 1.2, y = Inf, label = 'beta[1] == 1.2'), vjust = "inward", hjust = "inward", parse = TRUE) +
+    guides(color = guide_legend(title = expression("Covers "~beta[1]~"?"))) +
+    theme(legend.position = 'bottom') +
+    theme_jrf() +
+    scale_x_continuous(expand = c(0.05, 0.01)) + scale_y_continuous(expand = c(0.02, 0.01)) + 
+    scale_colour_manual(values = c('Yes' = pal538['green'][[1]], 'No' = pal538['red'][[1]]))
+```
+
+# Question 4
+
+## Summary
+
+We begin by loading and tidying the ML Pay dataset.
+
+```{r message = FALSE, warning = FALSE}
+# Read in the ML Pay dataset
+ml_pay <- read_csv(paste0(data_dir, "MLPayData_Total.csv"))
+
+# Let's tidy the dataset
+ml_pay2 <- 
+    ml_pay %>%
+    rename(team = Team.name.2014) %>%
+    gather(metric_raw, value, -payroll, -avgwin, -team) %>%
+    mutate(
+        year = as.factor(str_extract(metric_raw, "(\\d)+"))
+        , metric = ifelse(substring(metric_raw,1,1) == "p", "payroll", 
+                          ifelse(str_detect(metric_raw, ".pct"), "avgwin", "wins"))
+    ) %>%
+    select(team, year, metric, value, payroll, avgwin)
+
+ml_pay2
+```
+
+Let's do a few data quality checks, where we ensure there are 30 teams per year and there are no missing values.
+
+```{r}
+# Show there are 30 unique teams per year
+ml_pay2 %>%
+    group_by(year) %>%
+    summarise(
+        n = n()
+        , n_distinct = n_distinct(team)
+    )
+
+# Show that there are no missing values
+ml_pay2 %>%
+    summarise(
+        na = sum(is.na(value))
+        , nan = sum(is.nan(value))
+    )
+```
+
+
+For the 17 years between 1998 and 2014, we summarise the payroll of the 30 teams.
+
+```{r}
+ml_pay2 %>%
+    filter(metric == "payroll") %>%
+    group_by(year) %>%
+    summarise(
+          min = min(value)
+        , p25 = quantile(value, .25)
+        , p50 = quantile(value, .5)
+        , mean = mean(value)
+        , p75 = quantile(value, .75)
+        , max = max(value)
+    ) 
+```
+
+The boxplot belows show there was a general growth in payroll spending over the 17 years in the MLB. The outlier at the high end of the payroll scale is the New York Yankees.
+
+```{r}
+ml_pay2 %>%
+    filter(metric == "payroll") %>%
+    ggplot(aes(year, value)) + geom_boxplot(fill = pal538['blue']) +
+    theme_jrf() +
+    labs(title = "Payroll Growth", y = "Team Payroll ($m)", x = NULL)
+```
+
+Let's identify what the year-over-year (yoy) growth in payroll has been by team.
+
+```{r}
+ml_pay2 %>%
+    filter(metric == "payroll") %>%
+    arrange(team, year) %>%
+    group_by(team) %>%
+    mutate(
+        yoy_growth = (value - lag(value)) / lag(value)
+    ) %>%
+    group_by(team) %>%
+    summarise(
+        avg_yoy_growth = mean(yoy_growth, na.rm = TRUE)
+    ) %>% 
+    ungroup() %>%
+    arrange(desc(avg_yoy_growth)) %>%
+    print(n = 30)
+```
+
+Let's summarise this as the yoy growth overall. 
+
+```{r}
+avg_yoy_growth <- 
+    ml_pay2 %>%
+        filter(metric == "payroll") %>%
+        arrange(team, year) %>%
+        group_by(team) %>%
+        mutate(
+            yoy_growth = (value - lag(value)) / lag(value)
+        ) %>%
+        group_by(team) %>%
+        summarise(
+            avg_yoy_growth = mean(yoy_growth, na.rm = TRUE)
+        ) %>% 
+        ungroup() %>%
+        summarise(
+            avg_yoy_growth = mean(avg_yoy_growth)
+        ) %>%
+        unlist()
+
+avg_yoy_growth
+```
+
+Next, we summarise the winning percentage for the 17 years. This is not particularly meaningful, but it is a way to identify any errant values.
+
+```{r}
+ml_pay2 %>%
+    filter(metric == "avgwin") %>%
+    group_by(year) %>%
+    summarise(
+          min = min(value)
+        , p25 = quantile(value, .25)
+        , p50 = quantile(value, .5)
+        , mean = mean(value)
+        , p75 = quantile(value, .75)
+        , max = max(value)
+    )
+```
+
+The boxplot below shows the dispersion of winning percentage overtime. You can see the dot in 2003 is the Detriot Tigers who lost more games than any American League team in history (43-119).
+
+```{r}
+ml_pay2 %>%
+    filter(metric == "avgwin") %>%
+    ggplot(aes(year, value)) + geom_boxplot(fill = pal538['blue']) +
+    scale_y_continuous(labels = scales::percent) + 
+    theme_jrf() +
+    labs(title = "Winning Percentage", y = "Winning Percentage", x = NULL)
+```
+
+Let's summarise the two variables across time to get an idea of where the values fall.
+
+```{r}
+ml_pay2 %>%
+    filter(metric %in% c("payroll","avgwin")) %>%
+    group_by(metric) %>%
+    summarise(
+          min = min(value)
+        , p25 = quantile(value, .25)
+        , p50 = quantile(value, .5)
+        , mean = mean(value)
+        , p75 = quantile(value, .75)
+        , max = max(value)
+    ) %>%
+    kable()
+```
+
+Next, let's look at scatter plots of payroll vs winning percentage over the 17 years. This plot helps highlight the fact that average payroll increases over time.
+
+```{r fig.width=7, fig.height=6}
+ml_pay2 %>%
+    filter(metric %in% c("payroll","avgwin")) %>%
+    select(-payroll, -avgwin) %>%
+    spread(metric, value) %>%
+    ggplot(aes(x = payroll, y = avgwin)) + facet_wrap(~ year) + 
+    geom_point(colour = pal538['blue'], alpha = 0.75) + 
+    geom_smooth(method = "lm", se = FALSE, colour = pal538['red']) +
+    scale_y_continuous(labels = scales::percent) + 
+    labs(title = "Payroll vs Winning Percentage", y = "Winning Percentage", x = "Payroll ($m)") + 
+    theme_jrf() +
+    geom_text(data =
+                  . %>%
+                  group_by(year) %>%
+                  summarise(
+                      cor = cor(payroll, avgwin)
+                  ),
+        aes(x = 170, y = .7, label = paste0("cor = ", round(cor, 3))),
+            size = 3
+        )
+
+avg_person_cor <-
+    ml_pay2 %>%
+        filter(metric %in% c("payroll","avgwin")) %>%
+        select(-payroll, -avgwin) %>%
+        spread(metric, value) %>%
+        group_by(year) %>%
+        summarise(
+            cor = cor(payroll, avgwin)    
+        ) %>%
+        ungroup() %>%
+        summarise(
+            cor = mean(cor)
+        ) %>%
+        unlist()
+
+# Avg Person Correlation
+avg_person_cor
+```
+
+Let's show the trends in the two variable by team.
+
+```{r}
+ml_pay2 %>%
+    filter(metric %in% c("payroll","avgwin")) %>%
+    ggplot(aes(x = year, y = value, group = team)) + 
+    facet_grid(metric ~ ., scales = "free_y", switch = "y", 
+               labeller = ggplot2::labeller(metric = c(avgwin = "Winning Percentage", payroll = "Payroll"))) +
+    geom_line(colour = pal538['blue']) + 
+    guides(color = FALSE) +
+    theme_jrf() +
+    labs(title = "Payroll and Winning Percentage by Team", y = NULL, x = NULL)
+```
+
+
+Summary of Exploratory Analysis:
+
+1. Payroll has generally been increasing - the yoy average growth is **`r round(avg_yoy_growth * 100,2)`%**.
+2. There does appear to be a linear relationship between payroll and winning percentage, in a given year. The average Person coorrlation coefficient is **`r round(avg_person_cor,3)`**.
+
+## Prediction
+
+Let's build a linear model to predict winning percentage for each of the 17 years. The best way to do this is using [nested data frames (tidyr), purrr, and broom](https://blog.rstudio.org/2016/02/02/tidyr-0-4-0/).
+
+```{r}
+lm_by_year <- 
+  ml_pay2 %>%
+  filter(metric %in% c("payroll","avgwin")) %>%
+  select(-payroll, -avgwin) %>%
+  spread(metric, value) %>%
+  group_by(year) %>% 
+  nest() %>%
+  mutate(
+    model = purrr::map(data, ~ lm(avgwin ~ payroll, data = .))
+  )
+```
+
+Below is a summary of each model. It appears that some of the models are significant at 95% confidence level, but a number of models are not, noteably 2012, 2014, and 2000. If we look back at the Payroll vs Winning Percentage plot, we can see that correlation for these years are lower than others.
+
+```{r}
+lm_by_year %>% 
+    unnest(model %>% purrr::map(broom::glance)) %>%
+    select(year, r.squared, adj.r.squared, sigma, statistic, p.value)
+```
+
+Below is the full summary of the model for 1998 and note that the results match the 1998 record above.
+
+```{r}
+summary(lm_by_year$model[[1]])
+```
+
+However, before we interpret these models let's check our model assumptions, aside from linearity, we need to check (1) normality and (2) equal variance of the residuals.
+
+THe normal Q-Q plots below show that the residuals are approximately normal.
+
+```{r}
+lm_by_year %>% 
+    unnest(model %>% purrr::map(broom::augment)) %>%
+    ggplot() +
+    facet_wrap(~ year) +
+    stat_qq(aes(sample = .std.resid), colour = pal538['blue']) +
+    geom_abline(data =
+        . %>% 
+        group_by(year) %>%
+        summarise(
+            slope = diff(quantile(.std.resid, c(0.25, 0.75))) / diff(qnorm(c(0.25, 0.75)))
+            , int = quantile(.std.resid, c(0.25, 0.75))[1L] - 
+               (diff(quantile(.std.resid, c(0.25, 0.75))) / 
+                    diff(qnorm(c(0.25, 0.75)))) * qnorm(c(0.25, 0.75))[1L]
+        ),
+        aes(slope = slope, intercept = int), alpha = 0.5
+    ) +
+    theme_jrf() +
+    scale_x_continuous(labels = NULL) + 
+    labs(title = "Normal Q-Q", y = "Standardized Residuals", x = "Theoretical Quantiles")
+```
+
+The fitted values vs residuals plots show approximately equal variance of the residuals (i.e. no heteroscedasticity).
+
+```{r}
+lm_by_year %>% 
+    unnest(model %>% purrr::map(broom::augment)) %>%
+    ggplot(aes(x = .fitted, y = .resid)) +
+    facet_wrap(~ year, scale = "free_x") +
+    geom_point(colour = pal538['blue']) +
+    geom_smooth(method = "loess", colour = pal538['red'], se = FALSE, size = .25, alpha = 0.5) + 
+    geom_hline(yintercept = 0, alpha = 0.5, linetype = 'dashed', color = 'black') +
+    theme_jrf() +
+    scale_x_continuous(labels = NULL) + 
+    labs(title = "Fitted Values vs Residuals", y = "Residuals", x = "Fitted Values")
+```
+
+Having checked the model assumptions, we can look at the $\beta$ that have been estimated by the models. Below are the 34 coefficients (17 models with an intercept term and a coefficient for payroll). The p-values show that for many of the estimated coefficients we do not have enough evidence to reject the null hypothesis that the coefficients differ from 0.
+
+```{r}
+lm_by_year %>% 
+    unnest(model %>% purrr::map(broom::tidy)) %>%
+    print(n = 34)
+```
+
+We find that in some years, payroll is a significant variable in predicting winning percentage while in others it is not. We might consider using previous years payroll to predict winning percentage.
+
+## Aggregated Information 
+
+Using the aggregated data provided in *MLPayData_Total.csv* we create linear regression to predict average winning percentage.
+
+```{r}
+fit1 <- lm(avgwin ~ payroll, data = ml_pay2 %>% select(team, payroll, avgwin) %>% distinct())
+summary(fit1)
+```
+
+We find that model is significant with an F-statistic of `r summary(fit1)$fstatistic[1]`.
+
+### Red Sox
+
+```{r}
+red_sox <- ml_pay2 %>% select(team, payroll, avgwin) %>% distinct() %>% filter(team == "Boston Red Sox")
+(red_sox_interval <- predict(fit1, red_sox, interval = "prediction", level = .95))
+```
+
+The 95% prediction interval for the Boston Red Sox is $(`r red_sox_interval[2]`, `r red_sox_interval[3]`)$ and their winning percentage is $`r red_sox$avgwin[[1]]`$. In other words, the model does quite well in predicting the Boston Red Sox's winning percentage over the 17 year period.
+
+### Oakland A's
+
+```{r}
+oakland <- ml_pay2 %>% select(team, payroll, avgwin) %>% distinct() %>% filter(team == "Oakland Athletics")
+(oakland_interval <- predict(fit1, oakland, interval = "prediction", level = .95))
+```
+
+The 95% prediction interval for the Oakland Athletics is $(`r oakland_interval[2]`, `r oakland_interval[3]`)$ and their winning percentage is $`r oakland$avgwin[[1]]`$. In other words, the model under-predicting the Oakland Athletic's winning percentage over the 17 year period as it's outside the prediction interval. This was an expected result as Billy Beane was the general manager for the A's during this period. 
+
+## Best Model with Historicals
+
+To build a model to best predict the winning percentage in 2014, we'll use the payroll and winning percentage from previous years. We will use the last 5 years of winning percentages and payroll figures. We use our domain knowledge to assume that data more than 5 years back will not have an influence on the current season.
+
+```{r}
+last_5years <- 
+    ml_pay2 %>%
+        filter(metric %in% c("payroll","avgwin")) %>%
+        select(-payroll, -avgwin) %>%
+        arrange(team, year) %>%
+        spread(metric, value) %>%
+        group_by(team) %>%
+        mutate(
+              payroll_lag1 = lag(payroll, 1)
+            , payroll_lag2 = lag(payroll, 2)
+            , payroll_lag3 = lag(payroll, 3)
+            , payroll_lag4 = lag(payroll, 4)
+            , payroll_lag5 = lag(payroll, 5)
+            , avgwin_lag1 = lag(avgwin, 1)
+            , avgwin_lag2 = lag(avgwin, 2)
+            , avgwin_lag3 = lag(avgwin, 3)
+            , avgwin_lag4 = lag(avgwin, 4)
+            , avgwin_lag5 = lag(avgwin, 5)
+        ) %>%
+        ungroup() %>%
+        filter(year == 2014) %>%
+        select(-payroll, -year)
+
+summary(lm(avgwin ~ . -team, data = last_5years))
+```
+
+We will iteratively remove the explanatory variable that has the largest p-value for the coefficient estimate.
+
+```{r}
+summary(lm(avgwin ~ . -team -payroll_lag4, data = last_5years))
+summary(lm(avgwin ~ . -team -payroll_lag4 -avgwin_lag5, data = last_5years))
+summary(lm(avgwin ~ . -team -payroll_lag4 -avgwin_lag5 -avgwin_lag1, data = last_5years))
+summary(lm(avgwin ~ . -team -payroll_lag4 -avgwin_lag5 -avgwin_lag1 -payroll_lag5, data = last_5years))
+summary(lm(avgwin ~ . -team -payroll_lag4 -avgwin_lag5 -avgwin_lag1 -payroll_lag5 -payroll_lag3, data = last_5years))
+summary(lm(avgwin ~ . -team -payroll_lag4 -avgwin_lag5 -avgwin_lag1 -payroll_lag5 -payroll_lag3 -payroll_lag2, data = last_5years))
+summary(lm(avgwin ~ . -team -payroll_lag4 -avgwin_lag5 -avgwin_lag1 -payroll_lag5 -payroll_lag3 -payroll_lag2 -avgwin_lag3, data = last_5years))
+summary(lm(avgwin ~ . -team -payroll_lag4 -avgwin_lag5 -avgwin_lag1 -payroll_lag5 -payroll_lag3 -payroll_lag2 -avgwin_lag3 -payroll_lag1, data = last_5years))
+```
+
+Using this process, we would select a model with the two explanatory variables of the average winning percentage from 2 years and 4 years ago. This model seems rather arbitary because there is not something significant about 2 years or 4 years ago.
+
+Perhaps a better solutions is to build features from the previous years. Below we attempt to using simple exponential smoothing ($\alpha = 0.6$ to weight recent values more) of payroll and winning percentage over 3 years.
+
+```{r}
+alpha <- 0.6
+nyears <- 3
+
+fn_ses_forecast <- function(x) {
+  if (sum(!is.na(x)) < nyears) {
+    fore <- as.double(NA)
+  } else {
+    fore <- data.frame(ses(x, alpha = alpha, initial = 'simple'))[,1][1]
+  }
+  return(fore)
+}
+
+last_2years <-
+    ml_pay2 %>%
+        filter(metric %in% c("payroll","avgwin")) %>%
+        select(-payroll, -avgwin) %>%
+        arrange(team, year) %>%
+        spread(metric, value) %>%
+        group_by(team) %>%
+        mutate(
+            payroll_ses = rollapply(payroll, FUN = fn_ses_forecast, 
+                            width = list(-nyears:-1), fill = NA, by.column = TRUE, align = "right")
+            , avgwin_ses = rollapply(avgwin, FUN = fn_ses_forecast, 
+                            width = list(-nyears:-1), fill = NA, by.column = TRUE, align = "right")
+        ) %>%
+        ungroup() %>%
+        group_by(team) %>%
+        mutate(
+            payroll_ses_lag1 = lag(payroll_ses,1)
+            , avgwin_ses_lag1 = lag(avgwin_ses,1)
+        ) %>%
+        ungroup() %>%
+        filter(year == 2014) %>%
+        select(team, avgwin, payroll_ses, avgwin_ses, payroll_ses_lag1, avgwin_ses_lag1)
+
+last_2years
+```
+
+Despite our efforts above, we find that this is not very helpful. We settle on a model that contains the 3-year smoothed payroll figures.
+
+```{r}
+(ses_fit <- step(lm(avgwin ~ . -team, data = last_2years)))
+```
+
+Using this model, we can predict the winning precentage for the teams in 2015. To do this we just need to change the width of our rolling simple exponential smoothing function to include 2014 data as this was not being used in the previous prediction of 2014.
+
+```{r}
+last_2years_2015 <-
+    ml_pay2 %>%
+        filter(metric %in% c("payroll","avgwin")) %>%
+        select(-payroll, -avgwin) %>%
+        arrange(team, year) %>%
+        spread(metric, value) %>%
+        group_by(team) %>%
+        mutate(
+            payroll_ses = rollapply(payroll, FUN = fn_ses_forecast, 
+                            width = list((-nyears+1):0), fill = NA, by.column = TRUE, align = "right")
+            , avgwin_ses = rollapply(avgwin, FUN = fn_ses_forecast, 
+                            width = list((-nyears+1):0), fill = NA, by.column = TRUE, align = "right")
+        ) %>%
+        ungroup() %>%
+        group_by(team) %>%
+        mutate(
+            payroll_ses_lag1 = lag(payroll_ses,1)
+            , avgwin_ses_lag1 = lag(avgwin_ses,1)
+        ) %>%
+        ungroup() %>%
+        filter(year == 2014) %>%
+        select(team, avgwin, payroll_ses, avgwin_ses, payroll_ses_lag1, avgwin_ses_lag1)
+
+cbind(
+    last_2years_2015 %>% select(team), 
+    prediction_2015 = predict(ses_fit, last_2years_2015)
+) %>% tbl_df %>%
+    print(n = 30)
+```
+
+# Question 5
+
+## Exploratory Analysis
+
+We can start of with basic pairs plot, but it's difficult to read.
+
+```{r}
+pairs(Auto)
+```
+
+But, we can do much better than that using [ggpairs](http://vita.had.co.nz/papers/gpp.pdf). Here we can learn much more about our dataset.
+
+```{r fig.width=7, fig.height=7}
+Auto_proper <- 
+    Auto %>% tbl_df %>%
+    mutate(
+          cylinders = as.factor(cylinders)
+        , year = as.integer(paste0("19", year))
+        , year2 = as.factor(paste0("19", year))
+        , origin = factor(origin, labels = c('American', 'European', 'Japanese'))
+        , name = as.character(name)
+    )
+
+
+ggpairs(Auto_proper %>% select(-name, -year2),
+  upper = list(continuous = wrap("cor"), 
+               combo = wrap("box", colour = pal538['blue'], fill = pal538['blue']),
+               discrete =  wrap("facetbar", colour = pal538['blue'], fill = pal538['blue']))
+, lower = list(continuous = wrap("points", colour = pal538['blue'], fill = pal538['blue']), 
+               combo = wrap("facethist", bins = 30, colour = pal538['blue'], fill = pal538['blue']),
+               discrete = wrap("facetbar", colour = pal538['blue'], fill = pal538['blue']))
+, diag = list(continuous = wrap("densityDiag", colour = pal538['blue'], fill = pal538['blue']),
+              discrete = wrap("barDiag", colour = pal538['blue'], fill = pal538['blue']))
+) + theme_jrf()
+
+```
+
+From this plot alone, we can glean a lot information about the Auto dataset.
+
+1. Cars with fewer cylinders generally have higher MPG
+2. There are negative relationships between displacement, horsepower, and weight and MPG
+3. In general, newer cars have better MPG
+4. American made cars have much lower MPGs than European or Japanese cars
+5. Most of the cars in the dataset are from America
+6. Cars with 6 and 8 cylinders almost exclusively come from America
+7. Each year in the range of the dataset has a nearly equal number of cars
+8. Generally cars with fewer cyclinders are lighter
+
+More points can be made but this is a strong starting point. 
+
+Before going much futher, let's check to ensure we have no missing data.
+
+```{r}
+# Complete.cases shows there is no missing values
+sum(!complete.cases(Auto_proper))
+```
+
+We can do some summary statistics to get a feel of the bounds of the variables
+
+```{r}
+sapply(Auto_proper, summary)
+```
+
+## Year
+
+### MPG vs Year
+
+```{r}
+auto_fit1 <- lm(mpg ~ year, data = Auto_proper)
+summary(auto_fit1)
+```
+
+We find that model year is a significant variable at the 0.05 level. We have strong evidence against the hypothesis that the coefficient associated with year is equal to 0 (*P-value = `r format(coef(summary(auto_fit1))[, 4][2], scientific = TRUE)`*).
+
+We estimate that for each additional year (car being newer) a cars MPG increases by **`r coef(summary(auto_fit1))[,1][[2]]`**. For example, for a car with model year 1980 we estimate `r predict(auto_fit1, data_frame(year = 1980))` mpg and a car with model year 1981 we estimate `r predict(auto_fit1, data_frame(year = 1981))`. The difference a year makes in the estimate is $`r predict(auto_fit1, data_frame(year = 1981))` - `r predict(auto_fit1, data_frame(year = 1980))`= `r predict(auto_fit1, data_frame(year = 1981)) - predict(auto_fit1, data_frame(year = 1981))`$.
+
+### Add Horsepower
+
+```{r}
+auto_fit2 <- lm(mpg ~ horsepower + year, data = Auto_proper)
+summary(auto_fit2)
+```
+
+Year is still significant at the 0.05 level. We have strong evidence against the hypothesis that the coefficient associated with year is equal to 0 (*P-value = `r format(coef(summary(auto_fit2))[, 4][3], scientific = TRUE)`*).
+
+For cars with the same horsepower, we estimate that each additional year (car being newer) a cars MPG increases by  **`r coef(summary(auto_fit2))[,1][[3]]`**. 
+
+We show the two confidence intervals for the coefficient of year between the two models.
+
+```{r}
+confint(auto_fit1, "year", level = 0.95)
+confint(auto_fit2, "year", level = 0.95)
+```
+
+These two confidence intervals are different. To a non-statistician, we would describe this difference as
+
+>In our first model to predict MPG, we only use the model year of the car. In our second model, we include horsepower which explains part of the variation in MPG between cars. In other words, the effect of the model year on MPG is smaller when we include the variation explained by horsepower.    
+
+### Interaction Term
+
+```{r}
+auto_fit3 <- lm(mpg ~ horsepower * year, data = Auto_proper)
+summary(auto_fit3)
+```
+
+The interaction term is significant at the 0.05 level. We have strong evidence against the hypothesis that the coefficient associated with the interaction of year and horespower is equal to 0 (*P-value = `r format(coef(summary(auto_fit3))[, 4][4], scientific = TRUE)`*)
+
+Now the effect of year cannot be interpreted uniformly when holding the other variable horsepower constant as it depends on the value of horsepower. Thus, we show the effect of a 1 year increase in model year (one year newer), on the 25th percentile, median, and 75th percentile horsepower values in our dataset.
+
+| |Horsepower = `r quantile(Auto_proper$horsepower, .25)`|Horsepower = `r quantile(Auto_proper$horsepower, .5)`|Horsepower = `r quantile(Auto_proper$horsepower, .75)`|
+|-------------|-------------|-------------|-------------|
+|Effect of 1 year increase in model year|`r predict(auto_fit3, data_frame(year = 1981, horsepower = quantile(Auto_proper$horsepower, .25))) - predict(auto_fit3, data_frame(year = 1980, horsepower = quantile(Auto_proper$horsepower, .25)))`|`r predict(auto_fit3, data_frame(year = 1981, horsepower = quantile(Auto_proper$horsepower, .5))) - predict(auto_fit3, data_frame(year = 1980, horsepower = quantile(Auto_proper$horsepower, .5)))`|`r predict(auto_fit3, data_frame(year = 1981, horsepower = quantile(Auto_proper$horsepower, .75))) - predict(auto_fit3, data_frame(year = 1980, horsepower = quantile(Auto_proper$horsepower, .75)))`|
+
+
+## Cylinder
+
+We have the cylinder variable coded a categorical variable because the number of cylinders is a characteristic of the car, rather than a feature that can be easily changed. In other words, a 1 unit change in cyclinder is really not meaningful as most engines are made with cylinders with multiples of 2.
+
+```{r}
+Auto_proper %>%
+    filter(!(cylinders %in% c("3","5"))) %>%
+    ggplot(aes(x = cylinders, y = mpg, fill = cylinders)) + 
+    scale_fill_manual("Cylinders", values = c('4' = pal538['blue'][[1]], '6' = pal538['green'][[1]], '8' = pal538['red'][[1]])) +
+    geom_boxplot() + 
+    theme_jrf() +
+    labs(title = "MPG vs Cylinders", x = "Cylinders", y  = "MPG")
+
+```
+
+### As Quantitative Variable
+
+Per the question, we will use cylinders as a integer (not continuous).
+
+```{r}
+auto_fit4 <- lm(mpg ~ horsepower + as.integer(cylinders), data = Auto_proper)
+summary(auto_fit4)
+```
+
+Cylinders is significant at the 0.01 level. We have strong evidence against the hypothesis that the coefficient associated with cylinders is equal to 0 (*P-value = `r format(coef(summary(auto_fit4))[, 4][3], scientific = TRUE)`*).
+
+We estimate that, holding horsepower constant, for each additional cylinder in the car, the car's mpg is `r coef(summary(auto_fit4))[,1][[3]]` lower.
+
+### As Categorical Variable
+
+```{r}
+auto_fit5 <- lm(mpg ~ horsepower + cylinders, data = Auto_proper)
+summary(auto_fit5)
+```
+
+Cylinders is significant at the 0.01 level. If one of the coefficients of the factor levels in the model is significant, then the variable as whole is significant. We then use ANOVA to compare the two models.
+
+```{r}
+anova(auto_fit4, auto_fit5)
+```
+
+We have strong evidence that the model using categorical variable for cylinder better explains the variation in MPG than the model that uses a quantative variable for cylinder (*P-value = `r format(anova(auto_fit4, auto_fit5)[, 6][[2]], scientific = TRUE)`*)
+
+### Difference
+
+The fundemental difference between model 1 and model 2 is that model 1 assumes that there can be incremental increaes in cylinders whereas model 2 assumes that there are different types of cylinders. In reality, you cannot increase a cars cylinders by 0.25 so model 1 is not practically valid. Model 2 recognizes the nature of the variable cylinder and how cars are made, thus being a practically applicable model.
+
+The plots below provide a comparison between the two models.
+
+```{r fig.width = 8, fig.height = 4}
+cylinders <- seq(from = 2, to = 8, by = 0.25)
+int_line <- data_frame(
+                  cylinders = cylinders
+                , int = coef(summary(auto_fit4))[,1][[1]] + coef(summary(auto_fit4))[,1][[3]]*cylinders
+                , slope = coef(summary(auto_fit4))[,1][[2]]
+                )
+
+g1 <- 
+    ggplot(Auto_proper, aes(x = horsepower, y = mpg)) + 
+    geom_point(alpha = 0.5) + 
+    geom_abline(data = int_line, aes(intercept = int, slope = slope, colour = as.factor(cylinders))) +
+    theme_jrf() +
+    labs(title = "Model 1: Quantative Cylinders", x = "Horsepower", y  = "MPG") +
+    guides(colour = guide_legend(title = "Cylinders (sample)"))
+    
+g2 <-
+    ggplot(Auto_proper, aes(x = horsepower, y = mpg, colour = cylinders)) + 
+    geom_point(alpha = 0.5) + 
+    geom_smooth(method = "lm", se = FALSE) +
+    theme_jrf() +
+    labs(title = "Model 2: Categorical Cylinders", x = "Horsepower", y  = "MPG") +
+    scale_colour_manual("Cylinders", values = c('3' = "#ffff00",
+                                                 '4' = pal538['blue'][[1]], 
+                                                 '5' = pal538['dkgray'][[1]],
+                                                 '6' = pal538['green'][[1]], 
+                                                 '8' = pal538['red'][[1]]))
+
+
+grid.arrange(g1, g2, ncol = 2)
+``` 
+
+## Final Model
+
+First we make a dataframe of the car that we will predict MPG.
+
+```{r}
+future_car <- data_frame(
+       year = 1983
+     , length = 180 
+     , cylinders = factor(8, levels = c(3,4,5,6,8))
+     , displacement = 350 
+     , horsepower = 260
+     , weight = 4000
+     )
+```
+
+Reviewing the diagonal from the pairs plot in the [exploratory analysis](#51_exploratory_analysis), we note that the continuous predictors and the dependent variable MPG are all somewhat normally distribute and we decide not to perform any transformations. 
+
+We will use the `leaps` package using each of the 3 methods. With each we will:
+
+1. Show the feature combinations for each value of *d* (number of predictors)
+2. Plot Mallow's Cp, BIC, and Adjusted $R^2$. 
+
+### Exhaustive
+
+```{r}
+auto_fit6 <- regsubsets(mpg ~ ., data = Auto_proper %>% select(-name, -year2), nvmax = 11, method="exhaustive")
+auto_fit6_sum <- summary(auto_fit6)
+as_data_frame(auto_fit6_sum$outmat) %>% print(width = Inf)
+```
+
+```{r}
+data_frame(
+      predictors = 1:length(auto_fit6_sum$cp)
+    , cp = auto_fit6_sum$cp
+    , bic = auto_fit6_sum$bic
+    , adjr2 = auto_fit6_sum$adjr2
+) %>%
+    gather(metric, value, -predictors) %>%
+    mutate(metric = factor(metric, levels = c("cp","bic","adjr2"))) %>%
+    ggplot(aes(x = predictors, y = value, colour = metric)) +
+    facet_grid(metric ~ ., scale = "free_y", switch = "y", 
+               labeller = ggplot2::labeller(metric = c(cp = "Cp", bic = "BIC", adjr2 = "Adjusted R^2"))) +
+    geom_vline(xintercept = 3, alpha = 0.5) + geom_line() + geom_point() +
+    geom_label(data = data_frame(
+        predictors = c(which.min(auto_fit6_sum$cp), which.min(auto_fit6_sum$bic), which.max(auto_fit6_sum$adjr2))
+        , metric = factor(c("cp","bic","adjr2"), levels = c("cp","bic","adjr2"))
+        , value = c(min(auto_fit6_sum$cp), min(auto_fit6_sum$bic), max(auto_fit6_sum$adjr2))
+        , label = paste0("Optimal\nd=", c(which.min(auto_fit6_sum$cp), which.min(auto_fit6_sum$bic), which.max(auto_fit6_sum$adjr2)))
+        , vjust = c(-.5, -.5, 1.25)
+    ), aes(x = predictors, y = value, label = label, vjust = vjust), family = "DecimaMonoPro") +
+    theme_jrf() + 
+    labs(title = "Exhaustive Search", x = "# of Predictors", y = NULL) +
+    geom_label(data = data_frame(x = 3, y = 300, metric = factor(c("cp"), levels = c("cp","bic","adjr2")), 
+                label = "Elbow with\n3 predictors"), aes(x=x,y=y,label=label), colour = "black", hjust = -.1,
+               family = "DecimaMonoPro") + 
+    scale_colour_manual(guide = FALSE, values = c(pal538['red'][[1]], pal538['green'][[1]], pal538['blue'][[1]]))
+```
+
+### Forward
+
+```{r}
+auto_fit7 <- regsubsets(mpg ~ ., data = Auto_proper %>% select(-name, -year2), nvmax = 11, method="forward")
+auto_fit7_sum <- summary(auto_fit7)
+as_data_frame(auto_fit7_sum$outmat) %>% print(width = Inf)
+```
+
+```{r}
+data_frame(
+      predictors = 1:length(auto_fit7_sum$cp)
+    , cp = auto_fit7_sum$cp
+    , bic = auto_fit7_sum$bic
+    , adjr2 = auto_fit7_sum$adjr2
+) %>%
+    gather(metric, value, -predictors) %>%
+    mutate(metric = factor(metric, levels = c("cp","bic","adjr2"))) %>%
+    ggplot(aes(x = predictors, y = value, colour = metric)) +
+    facet_grid(metric ~ ., scale = "free_y", switch = "y", 
+               labeller = ggplot2::labeller(metric = c(cp = "Cp", bic = "BIC", adjr2 = "Adjusted R^2"))) +
+    geom_vline(xintercept = 3, alpha = 0.5) + geom_line() + geom_point() +
+    geom_label(data = data_frame(
+        predictors = c(which.min(auto_fit7_sum$cp), which.min(auto_fit7_sum$bic), which.max(auto_fit7_sum$adjr2))
+        , metric = factor(c("cp","bic","adjr2"), levels = c("cp","bic","adjr2"))
+        , value = c(min(auto_fit7_sum$cp), min(auto_fit7_sum$bic), max(auto_fit7_sum$adjr2))
+        , label = paste0("Optimal\nd=", c(which.min(auto_fit7_sum$cp), which.min(auto_fit7_sum$bic) ,which.max(auto_fit7_sum$adjr2)))
+        , vjust = c(-.5, -.5, 1.25)
+    ), aes(x = predictors, y = value, label = label, vjust = vjust), family = "DecimaMonoPro") +
+    theme_jrf() + 
+    labs(title = "Forward Search", x = "# of Predictors", y = NULL) +
+    geom_label(data = data_frame(x = 3, y = 300, metric = factor(c("cp"), levels = c("cp","bic","adjr2")), 
+                label = "Elbow with\n3 predictors"), aes(x=x,y=y,label=label), colour = "black", hjust = -.1,
+               family = "DecimaMonoPro") + 
+    scale_colour_manual(guide = FALSE, values = c(pal538['red'][[1]], pal538['green'][[1]], pal538['blue'][[1]]))
+```
+
+### Backward
+
+```{r}
+auto_fit8 <- regsubsets(mpg ~ ., data = Auto_proper %>% select(-name, -year2), nvmax = 11, method="backward")
+auto_fit8_sum <- summary(auto_fit7)
+as_data_frame(auto_fit8_sum$outmat) %>% print(width = Inf)
+```
+
+```{r}
+data_frame(
+      predictors = 1:length(auto_fit8_sum$cp)
+    , cp = auto_fit8_sum$cp
+    , bic = auto_fit8_sum$bic
+    , adjr2 = auto_fit8_sum$adjr2
+) %>%
+    gather(metric, value, -predictors) %>%
+    mutate(metric = factor(metric, levels = c("cp","bic","adjr2"))) %>%
+    ggplot(aes(x = predictors, y = value, colour = metric)) +
+    facet_grid(metric ~ ., scale = "free_y", switch = "y", 
+               labeller = ggplot2::labeller(metric = c(cp = "Cp", bic = "BIC", adjr2 = "Adjusted R^2"))) +
+    geom_vline(xintercept = 3, alpha = 0.5) + geom_line() + geom_point() +
+    geom_label(data = data_frame(
+        predictors = c(which.min(auto_fit8_sum$cp), which.min(auto_fit8_sum$bic), which.max(auto_fit8_sum$adjr2))
+        , metric = factor(c("cp","bic","adjr2"), levels = c("cp","bic","adjr2"))
+        , value = c(min(auto_fit8_sum$cp), min(auto_fit8_sum$bic), max(auto_fit8_sum$adjr2))
+        , label = paste0("Optimal\nd=", c(which.min(auto_fit8_sum$cp), which.min(auto_fit8_sum$bic), which.max(auto_fit8_sum$adjr2)))
+        , vjust = c(-.5, -.5, 1.25)
+    ), aes(x = predictors, y = value, label = label, vjust = vjust), family = "DecimaMonoPro") +
+    theme_jrf() + 
+    labs(title = "Backward Search", x = "# of Predictors", y = NULL) +
+    geom_label(data = data_frame(x = 3, y = 300, metric = factor(c("cp"), levels = c("cp","bic","adjr2")), 
+                label = "Elbow with\n3 predictors"), aes(x=x,y=y,label=label), colour = "black", hjust = -.1,
+               family = "DecimaMonoPro") + 
+    scale_colour_manual(guide = FALSE, values = c(pal538['red'][[1]], pal538['green'][[1]], pal538['blue'][[1]]))
+```
+
+### Selection
+
+In all 3 methods, we find that there is an elbow in the information criteria at 3 predictors. These three predictors are
+
+1. Weight
+2. Year
+3. 6 Cylinder Level of Cylinders
+
+Regarding (3), this indicates that we might want to try creating a binary variable, whether or not the car is 6 cylinders. We will create 4 models
+
+1. Model 1: Cylinders - all levels
+2. Model 2: Binary 6-cylinder
+3. Model 3: Binary 6-cylinder & Horsepower
+4. Model 4: Cylinders - all levels & Horsepower
+
+Model 1: Cylinders - all levels
+
+```{r}
+Auto_proper2 <-
+    Auto_proper %>%
+    mutate(
+        is_6cylinder = cylinders == 6
+    )
+auto_fit9 <- lm(mpg ~ weight + year + cylinders, Auto_proper2)
+summary(auto_fit9)
+```
+
+Model 2: Binary 6-cylinder
+
+```{r}
+auto_fit10 <- lm(mpg ~ weight + year + is_6cylinder, Auto_proper2)
+summary(auto_fit10)
+```
+
+Model 3: Binary 6-cylinder & Horsepower
+
+```{r}
+auto_fit11 <- lm(mpg ~ weight + year + is_6cylinder + horsepower, Auto_proper2)
+summary(auto_fit11)
+```
+
+Model 4: Cylinders - all levels & Horsepower
+
+```{r}
+auto_fit12 <- lm(mpg ~ weight + year + cylinders + horsepower, Auto_proper2)
+summary(auto_fit12)
+```
+
+Now that we have 4 models, we can compare the AIC (Mallow's Cp in linear regression) and BIC. If there is not a significant difference, we will use the simplest model (model 2).
+
+```{r}
+data_frame(
+    Model = c("1: Cylinders - all levels", "2: Binary 6-cylinder",
+              "3: Binary 6-cylinder & Horsepower","4: Cylinders - all levels & Horsepower")
+    , AIC = AIC(auto_fit9, auto_fit10, auto_fit11, auto_fit12)$AIC
+    , BIC = BIC(auto_fit9, auto_fit10, auto_fit11, auto_fit12)$BIC
+) %>%
+    kable()
+```
+
+Model 2 has higher AIC and BIC values compared to the other 3 models, indicating it explains less variation in MPG. However, the difference is not large and it is the simplest model. We will use model 2 as our final model.
+
+#### Quadratic Term
+
+We notice that we might want a quadratic term for the predictor weight by looking at the following charts. We may be concerned about overfitting, particulary for 6-cylinder cars (i.e. 1970 and 1982). However, we know that we will be predicting the MPG of a 8-cylinder car.
+
+```{r warnings = FALSE, fig.height = 7}
+Auto_proper2 %>%
+    select(mpg, weight, year, cylinders, is_6cylinder) %>%
+    ggplot(aes(x = weight, y = mpg, colour = is_6cylinder)) + 
+    facet_wrap(~ year) +
+    geom_point(alpha = 0.5) +
+    theme_jrf(base_size) +
+    geom_smooth(method = "lm", formula = y ~ x + I(x^2), se = FALSE) +
+    labs(title = "Evidence for adding Quadratic Term for Weight", x = "Weight", y = "MPG") +
+    scale_colour_manual("Is 6 Cylinder?", values = c('TRUE' = pal538['green'][[1]], "FALSE" = pal538['red'][[1]])) +
+    guides(colour = guide_legend(reverse = TRUE)) +
+    theme(legend.position = 'bottom')
+```
+
+We create a model to add in the quadratic term for weight. We see that the binary variable for whether the car is a 6-cylinder is now only marginally significant.
+
+```{r}
+auto_fit13 <- lm(mpg ~ weight + I(weight^2) + year + is_6cylinder, Auto_proper2)
+summary(auto_fit13)
+```
+
+Let's remove the binary predictor. 
+
+```{r}
+auto_fit14 <- lm(mpg ~ weight + I(weight^2) + year, Auto_proper2)
+summary(auto_fit14)
+```
+
+When we plot this model the results look great.
+
+```{r warnings = FALSE}
+Auto_proper2 %>%
+    select(mpg, weight, year, cylinders, is_6cylinder) %>%
+    ggplot(aes(x = weight, y = mpg)) + 
+    facet_wrap(~ year) +
+    geom_point(color = pal538['blue'][[1]], alpha = 0.5) +
+    theme_jrf() +
+    geom_smooth(method = "lm", formula = y ~ x + I(x^2), se = FALSE, colour = pal538['red'][[1]]) +
+    labs(title = "Removing the Binary Is 6-cylinder Variable", x = "Weight", y = "MPG")
+```
+
+Let's compare the AIC and BIC values for all of these models.
+
+```{r}
+data_frame(
+    Model = c("1: Cylinders - all levels", "2: Binary 6-cylinder",
+              "3: Binary 6-cylinder & Horsepower","4: Cylinders - all levels & Horsepower",
+              "5: Binary 6-cylinder and Quadratic Weight", "6: Quatric Weight Only")
+    , AIC = AIC(auto_fit9, auto_fit10, auto_fit11, auto_fit12, auto_fit13, auto_fit14)$AIC
+    , BIC = BIC(auto_fit9, auto_fit10, auto_fit11, auto_fit12, auto_fit13, auto_fit14)$BIC
+) %>%
+    kable()
+```
+
+There is only a slight information gain with the binary 6-cylinder variable and we believe this to be overfiting. We will proceed with model 6. Let's check what would happen if we used `regsubsets` with a the quadratic term.
+
+```{r}
+auto_fit15 <- regsubsets(mpg ~ . + I(weight^2), data = Auto_proper2 %>% select(-name, -year2), nvmax = 11, method="exhaustive")
+auto_fit15_sum <- summary(auto_fit15)
+as_data_frame(auto_fit15_sum$outmat) %>% print(width = Inf)
+```
+
+```{r}
+data_frame(
+      predictors = 1:length(auto_fit15_sum$cp)
+    , cp = auto_fit15_sum$cp
+    , bic = auto_fit15_sum$bic
+    , adjr2 = auto_fit15_sum$adjr2
+) %>%
+    gather(metric, value, -predictors) %>%
+    mutate(metric = factor(metric, levels = c("cp","bic","adjr2"))) %>%
+    ggplot(aes(x = predictors, y = value, colour = metric)) +
+    facet_grid(metric ~ ., scale = "free_y", switch = "y", 
+               labeller = ggplot2::labeller(metric = c(cp = "Cp", bic = "BIC", adjr2 = "Adjusted R^2"))) +
+    geom_vline(xintercept = 3, alpha = 0.5) + geom_line() + geom_point() +
+    geom_label(data = data_frame(
+        predictors = c(which.min(auto_fit15_sum$cp), which.min(auto_fit15_sum$bic), which.max(auto_fit15_sum$adjr2))
+        , metric = factor(c("cp","bic","adjr2"), levels = c("cp","bic","adjr2"))
+        , value = c(min(auto_fit15_sum$cp), min(auto_fit15_sum$bic), max(auto_fit15_sum$adjr2))
+        , label = paste0("Optimal\nd=", c(which.min(auto_fit15_sum$cp), which.min(auto_fit15_sum$bic), which.max(auto_fit15_sum$adjr2)))
+        , vjust = c(-.5, -.5, 1.25)
+    ), aes(x = predictors, y = value, label = label, vjust = vjust), family = "DecimaMonoPro") +
+    theme_jrf() + 
+    labs(title = "Exhaustive Search with Quadratic Weight", x = "# of Predictors", y = NULL) +
+    geom_label(data = data_frame(x = 3, y = 300, metric = factor(c("cp"), levels = c("cp","bic","adjr2")), 
+                label = "Elbow with\n3 predictors"), aes(x=x,y=y,label=label), colour = "black", hjust = -.1,
+               family = "DecimaMonoPro") + 
+    scale_colour_manual(guide = FALSE, values = c(pal538['red'][[1]], pal538['green'][[1]], pal538['blue'][[1]]))
+```
+
+The result confirms our thinking: a 3 predictor model with a quadratic weight term.
+
+#### Summary
+
+Our final model to predict MPG based on the predictors in the *Auto* dataset is 
+
+$$MPG = \beta_0 + \beta_1 Weight + \beta_2 Weight^2 + \beta_3 + year$$
+
+```{r}
+(auto_fit_final <- summary(auto_fit14))
+```
+
+Thus the model is
+
+$$MPG = `r round(coef(auto_fit_final)[, 1][[1]],2)` + `r round(coef(auto_fit_final)[, 1][[2]],2)` Weight + `r as.character(coef(auto_fit_final)[, 1][[3]])` Weight^2 + `r round(coef(auto_fit_final)[, 1][[4]],2)` year$$
+
+##### Checking Model Assumptions
+
+The normal Q-Q plot shows that residuals might not come from a normal distribution at the tails, but all together is somewhat normal.
+
+```{r}
+data_frame(std.resid = rstandard(auto_fit14)) %>% 
+    ggplot() +
+    stat_qq(aes(sample = std.resid), colour = pal538['blue']) +
+    geom_abline(data =
+        . %>%
+        summarise(
+            slope = diff(quantile(std.resid, c(0.25, 0.75))) / diff(qnorm(c(0.25, 0.75)))
+            , int = quantile(std.resid, c(0.25, 0.75))[1L] - 
+               (diff(quantile(std.resid, c(0.25, 0.75))) / 
+                    diff(qnorm(c(0.25, 0.75)))) * qnorm(c(0.25, 0.75))[1L]
+        ),
+        aes(slope = slope, intercept = int), alpha = 0.5
+    ) +
+    theme_jrf() +
+    scale_x_continuous(labels = NULL) + 
+    labs(title = "Normal Q-Q", y = "Standardized Residuals", x = "Theoretical Quantiles")
+```
+
+In addition, the Shapiro-Wilks test shows that we have evidence that the residuals do not come from a normal distribution.
+
+```{r Shapiro Wilk Test}
+shapiro.test(rstandard(auto_fit14))
+```
+
+The fitted values vs residuals plots show approximately equal variance of the residuals (i.e. no heteroscedasticity).
+
+```{r}
+data_frame(
+    fitted = auto_fit14$fitted.values
+    , resid = auto_fit14$residuals
+    ) %>%
+    ggplot(aes(x = fitted, y = resid)) +
+    geom_point(colour = pal538['blue']) +
+    geom_smooth(method = "loess", colour = pal538['red'], se = FALSE, size = .25, alpha = 0.5) + 
+    geom_hline(yintercept = 0, alpha = 0.5, linetype = 'dashed', color = 'black') +
+    theme_jrf() +
+    scale_x_continuous(labels = NULL) + 
+    labs(title = "Fitted Values vs Residuals", y = "Residuals", x = "Fitted Values")
+```
+
+##### Statistical Inference
+
++ The F-test for regression provides extremely strong evidence against the hypothesis that none of the variables are related to the response MPG (*P-value ≈ 0*).
++ The Multiple R2 is `r round(auto_fit_final$r.squared,3)` indicating that `r 100*round(auto_fit_final$r.squared, 1)`% of the variation in car MPG is explained by the variation in weight and model year, so the model will be good for prediction, however normality is not satisfied so predictions may be unreliable.
++ The intercept is not meaningful (*MPG = 0*).
+* We have extremely strong evidence against the hypotheses that the coefficients associated with weight are equal to 0 (*P-values ≈ 0*).
++ We have extremely evidence against the hypothesis that the coefficient associated with model year is equal to 0 (*P-value ≈ 0*).
+
+The effects associated with weight are difficult to describe because of the quadratic term. 
+Holding the effect of weight constant, each additional year of car (newer model years), a car's MPG increases by `r coef(auto_fit_final)[,1][[4]]`.
+
+Finally, we can find a 95% prediction interval for the car built in 1983. 
+
+```{r}
+future_car_pred <- predict(auto_fit14, future_car, interval = "prediction")
+```
+
+The prediction interval for the MPG of this car is 
+
+$$(`r future_car_pred[2]`, `r future_car_pred[3]`)$$
+
