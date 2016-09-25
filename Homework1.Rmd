@@ -1,6 +1,6 @@
 ---
 title: "STATS701 Homework 1"
-author: "Jordan Farrer"
+author: "Jordan Farrer, Tomer Hershcovitz, Nikhilesh Jha"
 date: '2016-09-25'
 output:
   html_document:
