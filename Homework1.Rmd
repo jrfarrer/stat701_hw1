@@ -1,9 +1,17 @@
 ---
 title: "STATS701 Homework 1"
-author: "Jordan Farrer, Tomer Hershcovitz, Nikhilesh Jha"
+author: "Jordan Farrer"
 date: '2016-09-25'
 output:
+  html_notebook:
+    code_folding: hide
+    css: style.css
+    number_sections: yes
+    theme: flatly
+    toc: yes
+    toc_float: yes
   html_document:
+    code_folding: hide
     css: style.css
     number_sections: yes
     theme: flatly
@@ -23,18 +31,18 @@ Published file: [https://jrfarrer.github.io/stats701_hw1/](https://jrfarrer.gith
 
 Begin by setting up the R session, creating a logger function, and loading packages.
 
-```{r setup1, include=FALSE}
+```{r setup, include=FALSE}
 # Set options for the rmarkdown file
-knitr::opts_chunk$set(echo = TRUE, warning = FALSE, fig.align = 'center', width = 100)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, fig.align = 'center', width = 100, message = FALSE)
 ```
 
-```{r setup2, messages = FALSE}
+```{r setup2}
 # Set the seed for reproducibility
 set.seed(44)
 # Set the locale of the session so languages other than English can be used
 invisible(Sys.setlocale("LC_ALL", "en_US.UTF-8"))
 # Prevent printing in scientific notation
-options(scipen = 999, digits = 4, width = 220)
+options(digits = 4, width = 220)
 
 # Create a logger function
 logger <- function(msg, level = "info", file = log_file) {
@@ -70,8 +78,8 @@ fn_load_packages <- function(p) {
   }
 }
 # Create a vector of packages
-packages <- c('dplyr','tidyr','readr','stringr','ggplot2','ggthemes','knitr','readxl',
-              'broom','forecast','ISLR','GGally','gridExtra','leaps','extrafont')
+packages <- c('tidyverse','ggthemes','knitr','readxl','broom','forecast','stringr',
+              'ISLR','GGally','gridExtra','leaps','extrafont','pander')
 # Use function to load the required packages
 invisible(lapply(packages, fn_load_packages))
 ```
@@ -336,8 +344,8 @@ survey_results_final <-
 
 We previously listened to the podcast Planet Money's  [episode](http://www.npr.org/sections/money/2015/01/30/382657657/episode-600-the-people-inside-your-machine) about Amazon's Mechanical Turk program.
 
-```{r Summary - Summary Stata}
-sapply(survey_results_final, summary)
+```{r Summary - Summary Stata, results = 'asis'}
+pander(summary(survey_results_final), missing = "", split.table = Inf)
 ```
 
 |Variable|Class|Description|
@@ -626,16 +634,16 @@ p_hat <-
     summarise(p_hat = sum(wharton == "Yes") / n()) %>% 
     unlist()
 
-ci <- c(p_hat - qt(0.975, nrow(survey_results_final)) * sqrt(p_hat*(1-p_hat) / nrow(survey_results_final))
+ci2 <- c(p_hat - qt(0.975, nrow(survey_results_final)) * sqrt(p_hat*(1-p_hat) / nrow(survey_results_final))
         , p_hat + qt(0.975, nrow(survey_results_final)) * sqrt(p_hat*(1-p_hat) / nrow(survey_results_final)))
 
 pop_p <- p_hat * 51.6
-pop_ci <- round(ci * 51.6,2)
+pop_ci <- round(ci2 * 51.6,2)
 ```
 
 We estimate the sample proportion to be **`r p_hat`** and the 95% confidence interval to be
 
-$$(`r ci[1]`, `r ci[2]`)$$
+$$(`r ci2[1]`, `r ci2[2]`)$$
 
 Thus we estimate the size of the Wharton listeners in the US to be **`r round(pop_p,2)`** million and the 95% confidence interval to be (in millions)
 
@@ -661,9 +669,9 @@ ggplot(data_frame(x, y), aes(x = x, y = y)) + geom_point(colour = pal538['blue']
 
 We use the the lm function to create a linear model. 
 
-```{r}
+```{r results = 'asis'}
 fit1 <- lm(y ~ x)
-summary(fit1)
+tidy(fit1) %>% pander()
 ```
 
 We find that $\beta_0=`r fit1$coefficients['(Intercept)']`$ and $\beta_1=`r fit1$coefficients['x']`$. Next we overlay LS equation on the scatterplot.
@@ -712,9 +720,11 @@ for (i in 1:n_sim){
 
 We will summarize $\beta_1$.
 
-```{r }
-summary(b1)
+```{r results = 'asis'}
+summary(b1) %>% pander()
+```
 
+```{r }
 ggplot(data = data_frame(b1 = b1), aes(x = b1)) + geom_histogram(binwidth = 0.2, fill = pal538['blue']) + 
     geom_vline(xintercept = 1.2, colour = pal538['red']) +
     geom_label(aes(x = 1.2, y = Inf, label = 'beta[1] == 1.2'), 
@@ -890,7 +900,7 @@ ml_pay2 %>%
 
 Let's summarize the two variables across time to get an idea of where the values fall.
 
-```{r}
+```{r results = 'asis'}
 ml_pay2 %>%
     filter(metric %in% c("payroll","avgwin")) %>%
     group_by(metric) %>%
@@ -902,7 +912,7 @@ ml_pay2 %>%
         , p75 = quantile(value, .75)
         , max = max(value)
     ) %>%
-    kable()
+    pander()
 ```
 
 Next, let's look at scatter plots of payroll vs winning percentage over the 17 years. This plot helps highlight the fact that average payroll increases over time.
@@ -1227,18 +1237,7 @@ Auto_proper <-
         , name = as.character(name)
     )
 
-
-ggpairs(Auto_proper %>% select(-name, -year2),
-  upper = list(continuous = wrap("cor"), 
-               combo = wrap("box", colour = pal538['blue'], fill = pal538['blue']),
-               discrete =  wrap("facetbar", colour = pal538['blue'], fill = pal538['blue']))
-, lower = list(continuous = wrap("points", colour = pal538['blue'], fill = pal538['blue']), 
-               combo = wrap("facethist", bins = 30, colour = pal538['blue'], fill = pal538['blue']),
-               discrete = wrap("facetbar", colour = pal538['blue'], fill = pal538['blue']))
-, diag = list(continuous = wrap("densityDiag", colour = pal538['blue'], fill = pal538['blue']),
-              discrete = wrap("barDiag", colour = pal538['blue'], fill = pal538['blue']))
-) + theme_jrf()
-
+ggpairs(Auto_proper %>% select(-name, -year2)) + theme_jrf()
 ```
 
 From this plot alone, we can glean a lot information about the Auto dataset.
@@ -1495,7 +1494,7 @@ data_frame(
 
 ### Backward
 
-```{r}
+```{r, results = 'asis'}
 auto_fit8 <- regsubsets(mpg ~ ., data = Auto_proper %>% select(-name, -year2), nvmax = 11, method="backward")
 auto_fit8_sum <- summary(auto_fit7)
 as_data_frame(auto_fit8_sum$outmat) %>% print(width = Inf)
